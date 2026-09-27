@@ -7,3 +7,4 @@ artifacts/bert/
 colab/colab_bundle.zip
 resultados_colab.zip
 bert_train.log
+artifacts/onnx/

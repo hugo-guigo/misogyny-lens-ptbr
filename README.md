@@ -1,18 +1,9 @@
----
-title: Misogyny Lens PT-BR
-emoji: 🔎
-colorFrom: gray
-colorTo: yellow
-sdk: docker
-app_port: 7860
-pinned: false
----
-
 # Misogyny Lens PT-BR
 
-**Live demo: https://huggingface.co/spaces/hugo-guigo/misogyny-lens-ptbr** (API docs at `/docs`)
+**Live demo (runs in your browser): https://hugo-guigo.github.io/misogyny-lens-ptbr**  
+**Model: https://huggingface.co/hugo-guigo/bertimbau-misoginia-ptbr**
 
-A research demo that flags traits of misogyny in Brazilian Portuguese text and shows, word by word, what drove each prediction. It turns my undergraduate research ([lexico-misoginia-ptbr](https://github.com/hugo-guigo/lexico-misoginia-ptbr)) into a tested, containerized API with a live page.
+A research demo that flags traits of misogyny in Brazilian Portuguese text and shows, word by word, what drove each prediction. It turns my undergraduate research ([lexico-misoginia-ptbr](https://github.com/hugo-guigo/lexico-misoginia-ptbr)) into two deliverables: a quantized BERTimbau that runs entirely in the browser, and a tested, containerized API that serves the full SVM + BERTimbau ensemble.
 
 > ⚠ The models make mistakes and reflect biases of their training data (social media comments). They must not be used to moderate or judge people.
 
@@ -32,7 +23,20 @@ How the number stays honest:
 - **Model selection on validation only.** A stratified 10% validation split picks the BERT epoch (epoch 2 of 3 won) and fits the ensemble weights. The test set is not used for any choice.
 - **Distribution shift, measured.** Validation (17% positives, mixed sources) is harder than the test set (40% positives, ToLD-BR): the ensemble scores F1 0.67 on validation. The ensemble uses balanced class weights so the validation prior does not bias it on test.
 
-## What the page shows
+## Browser build (the live demo)
+
+The public demo has no server. `docs/` is a static page on GitHub Pages that downloads a quantized BERTimbau from the Hugging Face Hub and runs it with Transformers.js / ONNX Runtime Web. No text leaves the visitor's machine.
+
+| Version | Size | Accuracy | F1 | Where it was measured |
+|---|---|---|---|---|
+| PyTorch fp32 | 436 MB | 87.4% | 0.819 | Python |
+| ONNX int8, default settings | 110 MB | 79.3% | 0.673 | ONNX Runtime, x86 CPU |
+| ONNX uint8 per-channel (deployed) | 110 MB | 85.6% | 0.797 | ONNX Runtime, x86 CPU |
+| ONNX uint8 per-channel (deployed) | 110 MB | **85.6%** | **0.791** | **in the browser (WASM)**, `docs/eval.html` |
+
+Default int8 quantization cost 8 points of accuracy. Signed int8 weights saturate on x86 CPUs without VNNI (per-channel int8 collapsed to 39.9%); unsigned per-channel weights keep the model within 1.8 points of fp32 at a quarter of the size. `docs/eval.html` reruns the 333-sentence evaluation in any visitor's browser. Export and quantization: `export_onnx.py`.
+
+## What the API page shows
 
 - the ensemble verdict and the probability of each model;
 - **BERT occlusion:** each word is removed in turn and the drop in probability is its importance;
@@ -53,10 +57,17 @@ How the number stays honest:
 
 With 10 concurrent clients on the SVM path, p95 rises to 282 ms while server-side work stays near 3 ms: inference is CPU-bound in one Python process, so extra clients only queue. Scaling means more processes or instances, not more threads.
 
-## API
+## API (Docker)
+
+The full ensemble needs a server with ~2 GB of RAM, so it ships as a Docker image instead of a hosted endpoint:
 
 ```bash
-curl -X POST https://hugo-guigo-misogyny-lens-ptbr.hf.space/api/analyze \
+docker build -t misogyny-lens . && docker run -p 8000:7860 -e BERT_REPO=hugo-guigo/bertimbau-misoginia-ptbr misogyny-lens
+```
+
+
+```bash
+curl -X POST http://localhost:8000/api/analyze \
   -H "Content-Type: application/json" \
   -d '{"text": "Lugar de mulher é na cozinha"}'
 ```
@@ -83,7 +94,7 @@ Training never runs on the serving machine.
 
 ## CI
 
-GitHub Actions runs the test suite, builds the Docker image, starts the container and calls `/api/health` and `/api/analyze` against it. Every green push to `main` is deployed to the Hugging Face Space.
+GitHub Actions runs the test suite, builds the Docker image, starts the container and calls `/api/health` and `/api/analyze` against it. GitHub Pages serves `docs/` from `main`.
 
 ## Limitations
 

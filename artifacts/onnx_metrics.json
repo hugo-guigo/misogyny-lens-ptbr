@@ -1,0 +1,42 @@
+{
+  "test": {
+    "torch_fp32": {
+      "accuracy": 0.8739,
+      "f1": 0.819,
+      "precision": 0.9596,
+      "recall": 0.7143
+    },
+    "onnx_fp32": {
+      "accuracy": 0.8739,
+      "f1": 0.819,
+      "precision": 0.9596,
+      "recall": 0.7143
+    },
+    "onnx_int8": {
+      "accuracy": 0.7928,
+      "f1": 0.673,
+      "precision": 0.9103,
+      "recall": 0.5338
+    }
+  },
+  "max_abs_prob_diff_vs_torch": {
+    "torch_fp32": 0.0,
+    "onnx_fp32": 0.0,
+    "onnx_int8": 0.79311
+  },
+  "label_agreement_vs_torch": {
+    "torch_fp32": 1.0,
+    "onnx_fp32": 1.0,
+    "onnx_int8": 0.8949
+  },
+  "size_mb": {
+    "onnx_fp32": 435.9,
+    "onnx_int8": 109.7,
+    "torch_fp32": 435.7
+  },
+  "median_latency_ms_single_sentence_2_threads": {
+    "torch_fp32": 50.0,
+    "onnx_fp32": 27.7,
+    "onnx_int8": 17.1
+  }
+}

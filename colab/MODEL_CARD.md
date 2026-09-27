@@ -33,12 +33,35 @@ It powers the [Misogyny Lens PT-BR](https://huggingface.co/spaces/hugo-guigo/mis
 - 3 epochs on a Colab T4; epoch 2 was selected on a held-out validation split. The test set was not used for any choice.
 - Label 1 = misogyny traits, label 0 = none.
 
+## ONNX for the browser
+
+`onnx/model_quantized.onnx` is a dynamic uint8, per-channel quantization of this model (110 MB instead of 436 MB), used by the in-browser demo through Transformers.js. Measured on the same 333-sentence test set:
+
+| Version | Size | Accuracy | F1 | Median latency, 1 sentence, 2 CPU threads |
+|---|---|---|---|---|
+| PyTorch fp32 | 436 MB | 87.4% | 0.819 | 50 ms |
+| ONNX fp32 | 436 MB | 87.4% | 0.819 | 28 ms |
+| ONNX uint8 per-channel | 110 MB | 85.6% | 0.797 | ~17 ms |
+| ONNX int8 per-tensor (default settings) | 110 MB | 79.3% | 0.673 | 17 ms |
+
+Run in the browser (Transformers.js 3.8.1, WASM, headless Edge), the uint8 model scored 85.6% accuracy and F1 0.791 on the same 333 sentences, at about 265 ms per sentence in batches of 16.
+
+Signed int8 weights saturated on an x86 CPU without VNNI (per-channel int8 fell to 39.9%); unsigned or reduced-range weights avoid it.
+
 ## Usage
 
 ```python
 from transformers import pipeline
 clf = pipeline("text-classification", model="hugo-guigo/bertimbau-misoginia-ptbr")
 clf("Lugar de mulher é na cozinha")
+```
+
+In the browser (Transformers.js):
+
+```js
+import { pipeline } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1";
+const clf = await pipeline("text-classification", "hugo-guigo/bertimbau-misoginia-ptbr", { dtype: "q8" });
+await clf("Lugar de mulher é na cozinha");
 ```
 
 ## Limitations

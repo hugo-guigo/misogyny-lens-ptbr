@@ -34,24 +34,8 @@ jobs:
           done
           curl -fsS -X POST localhost:7860/api/analyze \
             -H "Content-Type: application/json" \
-            -d '{"text": "Lugar de mulher é na cozinha"}' | python -c "import json,sys; r=json.load(sys.stdin); assert r['label'] in (0,1); print(r['label_name'], r['decision'])"
+            -d '{"text": "Lugar de mulher é na cozinha"}' | python -c "import json,sys; r=json.load(sys.stdin); assert r['label'] in (0,1); print(r['label_name'], r['svm_decision'])"
       - name: Container logs
         if: always()
         run: docker logs lens || true
 
-  deploy:
-    # Continuous deployment: every green push to main goes to the Hugging Face Space.
-    needs: docker
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Push to Hugging Face Spaces
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE: ${{ vars.HF_SPACE || 'hugo-guigo/misogyny-lens-ptbr' }}
-        run: |
-          if [ -z "$HF_TOKEN" ]; then echo "HF_TOKEN secret not set, skipping deploy"; exit 0; fi
-          git push --force "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" HEAD:main

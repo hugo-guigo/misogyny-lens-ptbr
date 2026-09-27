@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misogyny Lens · in-browser evaluation</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <p class="kicker">in-browser evaluation</p>
+    <h1>Misogyny <span>Lens</span> eval</h1>
+    <p class="sub">Runs the quantized model on the 333 labeled test sentences (ToLD-BR, from the research repo at a pinned commit), here, in your browser, and computes the metrics. No server involved.</p>
+  </div>
+  <nav class="links"><a href="index.html">← demo</a></nav>
+</header>
+<main>
+  <section class="panel">
+    <p class="lbl">Progress</p>
+    <p class="mono" id="status">loading model…</p>
+    <div class="bar-outer"><div class="bar-inner" id="bar"></div></div>
+    <pre class="mono" id="out" style="white-space:pre-wrap;margin-top:1rem"></pre>
+  </section>
+</main>
+<script>
+  window.addEventListener("error", (e) => { document.getElementById("status").textContent = "error: " + e.message; document.title = "EVAL error"; });
+  window.addEventListener("unhandledrejection", (e) => { document.getElementById("status").textContent = "error: " + (e.reason && (e.reason.stack || e.reason.message) || e.reason); document.title = "EVAL error"; });
+</script>
+<script type="module">
+  import { load, proba } from "./model.js";
+  const TEST_URL = "https://raw.githubusercontent.com/hugo-guigo/lexico-misoginia-ptbr/3cd80edb467bf6282a23880f3f62b482cd67113b/outputs/corpus_teste_frases.csv";
+  const $ = (id) => document.getElementById(id);
+
+  // Minimal RFC 4180 CSV parser (quoted fields may hold commas, quotes and newlines).
+  function parseCsv(src) {
+    const rows = []; let row = [], field = "", q = false;
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (q) {
+        if (c === '"' && src[i + 1] === '"') { field += '"'; i++; }
+        else if (c === '"') q = false;
+        else field += c;
+      } else if (c === '"') q = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && src[i + 1] === "\n") i++;
+        row.push(field); rows.push(row); row = []; field = "";
+      } else field += c;
+    }
+    if (field || row.length) { row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  const t0 = performance.now();
+  await load((f) => { $("bar").style.width = Math.round(f * 100) + "%"; });
+  const rows = parseCsv(await (await fetch(TEST_URL)).text());
+  const head = rows[0], ti = head.indexOf("text"), li = head.indexOf("label");
+  const data = rows.slice(1).filter((r) => r.length > li && r[li] !== "" && r[ti] && r[ti].trim())
+                   .map((r) => ({ text: r[ti], y: +r[li] }));
+  const probs = [], batch = 16, tInf = performance.now();
+  for (let i = 0; i < data.length; i += batch) {
+    probs.push(...await proba(data.slice(i, i + batch).map((d) => d.text)));
+    $("status").textContent = `scored ${probs.length}/${data.length}`;
+    $("bar").style.width = Math.round(probs.length / data.length * 100) + "%";
+  }
+  const inferMs = performance.now() - tInf;
+  let tp = 0, fp = 0, fn = 0, tn = 0;
+  data.forEach((d, i) => { const p = probs[i] >= 0.5 ? 1 : 0; if (p && d.y) tp++; else if (p) fp++; else if (d.y) fn++; else tn++; });
+  const acc = (tp + tn) / data.length, prec = tp / (tp + fp), rec = tp / (tp + fn), f1 = 2 * prec * rec / (prec + rec);
+  const res = { sentences: data.length, positives: tp + fn, accuracy: +acc.toFixed(4), f1: +f1.toFixed(4),
+                precision: +prec.toFixed(4), recall: +rec.toFixed(4), confusion: { tp, fp, fn, tn },
+                inference_ms_per_sentence: +(inferMs / data.length).toFixed(1), total_seconds: +((performance.now() - t0) / 1000).toFixed(1),
+                user_agent: navigator.userAgent };
+  $("status").textContent = "done";
+  $("out").textContent = JSON.stringify(res, null, 2);
+  document.title = `EVAL acc=${res.accuracy} f1=${res.f1}`;
+</script>
+</body>
+</html>

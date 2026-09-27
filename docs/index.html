@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Misogyny Lens PT-BR</title>
+<meta name="description" content="Detector de traços de misoginia em português com BERTimbau rodando no seu navegador. BERTimbau running in your browser.">
+<meta name="theme-color" content="#0b0c0e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<script>
+  (function () {
+    var lang = null;
+    try { lang = localStorage.getItem("lang"); } catch (e) {}
+    if (!lang) lang = (navigator.language || "pt").toLowerCase().indexOf("pt") === 0 ? "pt-BR" : "en";
+    document.documentElement.lang = lang;
+  })();
+</script>
+</head>
+<body>
+
+<header class="top">
+  <div>
+    <p class="kicker"><span data-pt>PLN · BERTimbau no seu navegador · pesquisa UFG</span><span data-en>NLP · BERTimbau in your browser · UFG research</span></p>
+    <h1>Misogyny <span>Lens</span> PT-BR</h1>
+    <p class="sub">
+      <span data-pt>Digite um texto em português e veja, palavra por palavra, o que leva o modelo a marcar "traços de misoginia". O BERTimbau com fine-tuning roda inteiro no seu navegador, quantizado para 110 MB: nenhum texto sai do seu computador.</span>
+      <span data-en>Type a Portuguese text and see, word by word, what leads the model to flag "misogyny traits". The fine-tuned BERTimbau runs entirely in your browser, quantized to 110 MB: no text leaves your computer.</span>
+    </p>
+  </div>
+  <nav class="links">
+    <button type="button" id="lang"><span data-pt>EN</span><span data-en>PT</span></button>
+    <a href="https://github.com/hugo-guigo/misogyny-lens-ptbr">GitHub ↗</a>
+    <a href="https://huggingface.co/hugo-guigo/bertimbau-misoginia-ptbr"><span data-pt>Modelo</span><span data-en>Model</span> ↗</a>
+    <a href="https://hugo-guigo.github.io">Hugo Paula ↗</a>
+  </nav>
+</header>
+
+<p class="warning">
+  <span data-pt>⚠ Demo de pesquisa. O modelo erra, reflete vieses dos dados de treino (comentários de redes sociais) e não deve ser usado para moderar ou julgar pessoas.</span>
+  <span data-en>⚠ Research demo. The model makes mistakes, reflects biases of its training data (social media comments) and must not be used to moderate or judge people.</span>
+</p>
+
+<div class="loader" id="loader">
+  <p id="loader-text"><span data-pt>Baixando o modelo (110 MB, só na primeira visita; depois fica em cache)…</span><span data-en>Downloading the model (110 MB, first visit only; cached afterwards)…</span></p>
+  <div class="bar-outer"><div class="bar-inner" id="loader-bar"></div></div>
+</div>
+
+<main class="grid">
+  <section class="panel input-panel">
+    <label for="text" class="lbl"><span data-pt>Texto</span><span data-en>Text</span></label>
+    <textarea id="text" maxlength="1000" rows="4" spellcheck="false">Lugar de mulher é na cozinha</textarea>
+    <div class="row">
+      <div class="chips" id="examples"></div>
+      <span class="count mono" id="count">0/1000</span>
+    </div>
+  </section>
+
+  <section class="panel verdict-panel">
+    <p class="lbl"><span data-pt>Veredito</span><span data-en>Verdict</span></p>
+    <p id="verdict" class="verdict">…</p>
+    <div class="gauge" aria-hidden="true">
+      <div class="gauge-mid"></div>
+      <div class="gauge-fill" id="gauge"></div>
+    </div>
+    <div class="gauge-labels mono"><span data-pt>sem traços</span><span data-en>no traits</span><span>50%</span><span data-pt>com traços</span><span data-en>traits</span></div>
+    <dl class="stats mono">
+      <div><dt><span data-pt>probabilidade</span><span data-en>probability</span></dt><dd id="prob">–</dd></div>
+      <div><dt><span data-pt>inferência</span><span data-en>inference</span></dt><dd id="latency">–</dd></div>
+    </dl>
+    <p class="edge mono" id="backend"></p>
+  </section>
+
+  <section class="panel lens-panel">
+    <p class="lbl"><span data-pt>Explicação palavra por palavra (oclusão)</span><span data-en>Word-by-word explanation (occlusion)</span></p>
+    <p id="lens" class="lens"></p>
+    <p class="legend mono">
+      <span class="sw pos"></span><span data-pt>sem ela, a probabilidade cai</span><span data-en>without it, probability drops</span>
+      <span class="sw neg"></span><span data-pt>sem ela, a probabilidade sobe</span><span data-en>without it, probability rises</span>
+    </p>
+    <p class="note"><span data-pt>O modelo roda de novo sem cada palavra, no mesmo lote. É uma estimativa de importância, não uma soma exata.</span><span data-en>The model runs again without each word, in the same batch. It estimates importance; it is not an exact sum.</span></p>
+  </section>
+
+  <section class="panel parts-panel">
+    <p class="lbl"><span data-pt>Palavras que mais pesaram</span><span data-en>Most influential words</span></p>
+    <ul id="parts" class="parts mono"></ul>
+    <p class="note"><span data-pt>Variação da probabilidade de traços ao remover cada palavra.</span><span data-en>Change in the probability of traits when each word is removed.</span></p>
+  </section>
+</main>
+
+<section class="card-section">
+  <h2>Model card</h2>
+  <div class="table-wrap"><table class="cmp mono">
+    <thead><tr><th><span data-pt>Modelo (teste com 333 frases)</span><span data-en>Model (333-sentence test set)</span></th><th><span data-pt>Onde roda</span><span data-en>Runs on</span></th><th><span data-pt>Tamanho</span><span data-en>Size</span></th><th><span data-pt>Acurácia</span><span data-en>Accuracy</span></th><th>F1</th></tr></thead>
+    <tbody>
+      <tr><td>SVM (TF-IDF + <span data-pt>léxico</span><span data-en>lexicon</span>)</td><td>API (Docker)</td><td>0,1 MB</td><td>79,0%</td><td>0,696</td></tr>
+      <tr><td>BERTimbau fp32</td><td>API (Docker)</td><td>436 MB</td><td>87,4%</td><td>0,819</td></tr>
+      <tr><td>Ensemble SVM + BERTimbau</td><td>API (Docker)</td><td>436 MB</td><td>88,0%</td><td>0,831</td></tr>
+      <tr><td><b>BERTimbau uint8 (<span data-pt>esta página</span><span data-en>this page</span>)</b></td><td><span data-pt>seu navegador</span><span data-en>your browser</span></td><td>110 MB</td><td><b>85,6%</b></td><td><b>0,791</b></td></tr>
+    </tbody>
+  </table></div>
+  <a class="eval-link" href="eval.html"><span data-pt>Rodar a avaliação completa no seu navegador →</span><span data-en>Run the full evaluation in your browser →</span></a>
+  <div class="cols">
+    <div>
+      <h3><span data-pt>Como foi treinado</span><span data-en>How it was trained</span></h3>
+      <p><span data-pt>BERTimbau com fine-tuning numa GPU do Google Colab, 3 épocas, a melhor escolhida na validação. O teste foi usado uma única vez. As frases de teste também estavam no corpus de treino, então elas e suas duplicatas (371 linhas) foram removidas antes do treino.</span><span data-en>BERTimbau fine-tuned on a Google Colab GPU, 3 epochs, the best picked on validation. The test set was used once. Test sentences also appeared in the training corpus, so they and their duplicates (371 rows) were removed before training.</span></p>
+    </div>
+    <div>
+      <h3><span data-pt>Quantização</span><span data-en>Quantization</span></h3>
+      <p><span data-pt>A quantização int8 padrão derrubou a acurácia para 79,3%. Pesos int8 com sinal saturam em CPUs x86 sem VNNI. Com uint8 por canal, o modelo cai de 436 MB para 110 MB e perde só 1,8 ponto.</span><span data-en>Default int8 quantization dropped accuracy to 79.3%. Signed int8 weights saturate on x86 CPUs without VNNI. With per-channel uint8, the model shrinks from 436 MB to 110 MB and loses only 1.8 points.</span></p>
+    </div>
+    <div>
+      <h3><span data-pt>Limitações</span><span data-en>Limitations</span></h3>
+      <p><span data-pt>Teste pequeno (333 frases), então os intervalos de confiança são largos. O modelo deixa passar cerca de 3 em cada 10 casos positivos. Treinado com comentários de redes sociais, que carregam vieses de quem anotou.</span><span data-en>Small test set (333 sentences), so confidence intervals are wide. The model misses about 3 in 10 positive cases. Trained on social media comments, which carry their annotators' biases.</span></p>
+    </div>
+  </div>
+</section>
+
+<footer class="foot mono">
+  <p><span data-pt>Construído por</span><span data-en>Built by</span> <a href="https://hugo-guigo.github.io">Hugo Guilherme de Assis Paula</a> · Transformers.js · ONNX Runtime Web · <a href="https://github.com/hugo-guigo/lexico-misoginia-ptbr"><span data-pt>pesquisa original</span><span data-en>original research</span></a></p>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
