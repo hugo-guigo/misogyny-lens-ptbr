@@ -56,7 +56,6 @@
 
   function schedule(delay) {
     $("count").textContent = text.value.length + "/1000";
-    if (health.llm_available) $("llm-out").textContent = "";
     clearTimeout(timer);
     timer = setTimeout(analyze, delay);
   }
@@ -197,21 +196,6 @@
     $("parts-note").textContent = t("Acima de 0, o SVM marca \"com traços\".", "Above 0, the SVM says \"traits\".");
   }
 
-  // ---------- LLM second opinion ----------
-  $("llm-btn").addEventListener("click", function () {
-    var value = text.value;
-    if (!value.trim()) return;
-    $("llm-out").textContent = t("Consultando…", "Asking…");
-    fetch("/api/llm-explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: value }) })
-      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (j) {
-        $("llm-out").innerHTML = "<b>" + (j.label ? t("Traços de misoginia", "Misogyny traits") : t("Sem traços", "No traits")) +
-          "</b> · " + escapeHtml(j.category) + " · " + t("confiança ", "confidence ") + pct(j.confidence) + "<br>" + escapeHtml(j.explanation) +
-          '<span class="mono small"> · ' + escapeHtml(j.model) + "</span>";
-      })
-      .catch(function () { $("llm-out").textContent = t("Segunda opinião indisponível agora.", "Second opinion unavailable right now."); });
-  });
-
   // ---------- Model card ----------
   function renderCard(c) {
     if (!c || !c.svm) return;
@@ -233,7 +217,6 @@
     var rows = [["SVM (TF-IDF + " + t("léxico", "lexicon") + ")", s.test]];
     if (b) rows.push(["BERTimbau fine-tuned", b.test]);
     if (e) rows.push(["Ensemble", e.test.ensemble]);
-    if (c.llm) rows.push(["LLM (" + c.llm.model + ")", c.llm.test]);
     $("cmp").innerHTML = "<thead><tr><th>" + t("Modelo", "Model") + "</th><th>" + t("Acurácia", "Accuracy") + "</th><th>F1</th><th>" + t("Precisão", "Precision") + "</th><th>Recall</th></tr></thead><tbody>" +
       rows.map(function (r) {
         return "<tr><td>" + r[0] + "</td><td>" + pct(r[1].accuracy) + "</td><td>" + fmt(r[1].f1, 3) + "</td><td>" + pct(r[1].precision) + "</td><td>" + pct(r[1].recall) + "</td></tr>";
@@ -243,10 +226,6 @@
   fetch("/api/health").then(function (r) { return r.json(); }).then(function (h) {
     health = h;
     setView(h.bert_loaded ? "bert" : "svm");
-    if (!h.llm_available) {
-      $("llm-btn").disabled = true;
-      $("llm-out").textContent = t("Desativado neste servidor (sem chave de API configurada).", "Disabled on this server (no API key configured).");
-    }
     schedule(0);
   });
   fetch("/api/model-card").then(function (r) { return r.json(); }).then(function (m) { lastCard = m; renderCard(m); });

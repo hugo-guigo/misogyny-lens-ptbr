@@ -3,7 +3,6 @@
 GET  /api/health      liveness plus which models are loaded
 GET  /api/model-card  test metrics of every model
 POST /api/analyze     ensemble verdict + SVM exact explanation + BERT occlusion
-POST /api/llm-explain second opinion from Claude (only when ANTHROPIC_API_KEY is set)
 GET  /                demo page (static/)
 
 BERTimbau is optional: without artifacts/bert the API serves the SVM alone.
@@ -59,7 +58,7 @@ async def lifespan(app: FastAPI):
         if (ART / "ensemble.joblib").exists():
             state["ensemble"] = joblib.load(ART / "ensemble.joblib")
     state["card"] = {"svm": _read_json("svm_metrics.json"), "bert": _read_json("bert_metrics.json"),
-                     "ensemble": _read_json("ensemble_metrics.json"), "llm": _read_json("llm_metrics.json")}
+                     "ensemble": _read_json("ensemble_metrics.json")}
     yield
     state.clear()
 
@@ -114,7 +113,6 @@ def health():
     svm: LinearTextModel = state["svm"]
     return {"status": "ok", "spacy_model": SPACY_MODEL, "vocabulary_size": len(svm.vocab),
             "bert_loaded": state["bert"] is not None, "ensemble_loaded": state["ensemble"] is not None,
-            "llm_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "data_commit": svm.meta.get("data_commit")}
 
 
@@ -150,18 +148,6 @@ def analyze_text(req: TextIn):
         lexicon_features=exp.lexicon_features, tokens=exp.tokens, bert_words=bert_words,
         latency_ms=round((time.perf_counter() - t0) * 1000, 3),
     )
-
-
-@app.post("/api/llm-explain")
-def llm_explain(req: TextIn):
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise HTTPException(status_code=503, detail="LLM second opinion is not configured on this server")
-    from app.llm_judge import judge
-    t0 = time.perf_counter()
-    j = judge(req.text)
-    return {"label": j.label, "confidence": j.confidence, "category": j.category,
-            "explanation": j.explanation, "model": j.model, "refused": j.refused,
-            "latency_ms": round((time.perf_counter() - t0) * 1000, 1)}
 
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")

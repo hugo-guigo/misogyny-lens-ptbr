@@ -16,6 +16,5 @@ colab
 *.log
 finetune_bert.py
 ensemble.py
-eval_llm.py
 data.py
 train_svm.py

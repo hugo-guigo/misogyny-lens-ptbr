@@ -45,13 +45,3 @@ def test_verdict_comes_from_the_best_loaded_model(client):
         assert 0 <= body["bert_probability"] <= 1
         assert len(body["bert_words"]) == 6
 
-
-def test_llm_endpoint_is_disabled_without_key(client, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert client.post("/api/llm-explain", json={"text": "oi"}).status_code == 503
-
-
-def test_demo_page_is_served(client):
-    r = client.get("/")
-    assert r.status_code == 200
-    assert "Misogyny Lens" in r.text

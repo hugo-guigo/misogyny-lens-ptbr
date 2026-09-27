@@ -37,14 +37,12 @@ How the number stays honest:
 - the ensemble verdict and the probability of each model;
 - **BERT occlusion:** each word is removed in turn and the drop in probability is its importance;
 - **SVM exact split:** the linear model's score decomposes exactly into words + lexicon + bias (tests check it to 1e-9);
-- an optional **second opinion from Claude**, with category and explanation, when the server has an API key.
 
 ## Models
 
 - **BERTimbau** (`neuralmind/bert-base-portuguese-cased`) fine-tuned on a balanced subsample of the train split (11,120 texts), max 64 tokens, lr 2e-5, fp16, 3 epochs on a Colab T4 GPU (1.1 min per epoch). See `colab/train_bert_colab.ipynb`.
 - **Linear SVM** (scikit-learn `LinearSVC`, balanced) on TF-IDF of spaCy lemmas (`pt_core_news_sm`) plus the 8 features of the leak-free misogyny lexicon V3. Saved with joblib.
 - **Ensemble:** logistic regression over the SVM decision and the BERT logit, fitted on validation. BERT carries most of the weight (0.66 vs 0.22).
-- **LLM judge** (`app/llm_judge.py`): Claude with the project's 7-class taxonomy and structured JSON output. `eval_llm.py` scores it on the test set when an API key is available.
 
 ## Latency (local, Intel i3-9100F, 2 torch threads, warm server)
 
@@ -63,7 +61,7 @@ curl -X POST https://hugo-guigo-misogyny-lens-ptbr.hf.space/api/analyze \
   -d '{"text": "Lugar de mulher é na cozinha"}'
 ```
 
-Other endpoints: `GET /api/health`, `GET /api/model-card`, `POST /api/llm-explain`. Inputs must have 1 to 1,000 characters.
+Other endpoints: `GET /api/health`, `GET /api/model-card`. Inputs must have 1 to 1,000 characters.
 
 ## Run locally
 

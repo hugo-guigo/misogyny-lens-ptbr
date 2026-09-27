@@ -12,4 +12,3 @@ pt_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/pt
 torch==2.14.0
 transformers==5.17.0
 huggingface_hub==1.33.0
-anthropic==1.8.0
