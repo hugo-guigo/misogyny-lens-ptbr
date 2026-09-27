@@ -1,0 +1,57 @@
+{
+  "features": [
+    "svm_decision",
+    "bert_logit"
+  ],
+  "weights": {
+    "svm_decision": 0.2156,
+    "bert_logit": 0.6616
+  },
+  "intercept": 0.1298,
+  "val_5fold_cv": {
+    "accuracy": 0.8506,
+    "f1": 0.6708,
+    "precision": 0.545,
+    "recall": 0.8722
+  },
+  "test": {
+    "svm": {
+      "accuracy": 0.7898,
+      "f1": 0.6957,
+      "precision": 0.8247,
+      "recall": 0.6015
+    },
+    "bert": {
+      "accuracy": 0.8739,
+      "f1": 0.819,
+      "precision": 0.9596,
+      "recall": 0.7143
+    },
+    "ensemble": {
+      "accuracy": 0.8799,
+      "f1": 0.8305,
+      "precision": 0.9515,
+      "recall": 0.7368
+    }
+  },
+  "test_ensemble_bootstrap": {
+    "accuracy_ci95": [
+      0.8468,
+      0.9129
+    ],
+    "f1_ci95": [
+      0.7778,
+      0.8789
+    ]
+  },
+  "test_bert_bootstrap": {
+    "accuracy_ci95": [
+      0.8378,
+      0.9069
+    ],
+    "f1_ci95": [
+      0.7636,
+      0.8682
+    ]
+  }
+}

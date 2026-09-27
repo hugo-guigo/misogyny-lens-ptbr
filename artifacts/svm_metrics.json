@@ -1,0 +1,48 @@
+{
+  "model": "LinearSVC(class_weight=balanced) on TF-IDF of spaCy lemmas + 8 lexicon features",
+  "spacy_model": "pt_core_news_sm",
+  "data_commit": "3cd80edb467bf6282a23880f3f62b482cd67113b",
+  "docs_after_dedup": 35791,
+  "leaked_rows_removed": 371,
+  "train_docs": 31878,
+  "val_docs": 3542,
+  "test_docs": 333,
+  "train_positive_rate": 0.1744,
+  "test_positive": 133,
+  "vocabulary_size": 5320,
+  "val": {
+    "accuracy": 0.7883,
+    "f1": 0.5295,
+    "precision": 0.4324,
+    "recall": 0.6828
+  },
+  "test": {
+    "accuracy": 0.7898,
+    "f1": 0.6957,
+    "precision": 0.8247,
+    "recall": 0.6015
+  },
+  "test_tfidf_only": {
+    "accuracy": 0.7898,
+    "f1": 0.6957,
+    "precision": 0.8247,
+    "recall": 0.6015
+  },
+  "bootstrap_lexicon_vs_tfidf_only": {
+    "f1_ci_a": [
+      0.6213,
+      0.7575
+    ],
+    "f1_ci_b": [
+      0.6228,
+      0.7563
+    ],
+    "delta_mean": 0.0001,
+    "delta_ci": [
+      -0.0245,
+      0.027
+    ],
+    "p_one_sided": 0.5285
+  },
+  "train_seconds": 63.7
+}

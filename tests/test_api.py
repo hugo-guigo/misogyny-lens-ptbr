@@ -32,8 +32,23 @@ def test_rejects_invalid_input(client, payload):
 
 def test_model_card_reports_test_metrics(client):
     card = client.get("/api/model-card").json()
-    assert 0 < card["test_lexicon"]["f1"] <= 1
-    assert card["leaked_rows_removed"] > 0
+    assert 0 < card["svm"]["test"]["f1"] <= 1
+    assert card["svm"]["leaked_rows_removed"] > 0
+
+
+def test_verdict_comes_from_the_best_loaded_model(client):
+    health = client.get("/api/health").json()
+    body = client.post("/api/analyze", json={"text": "Lugar de mulher é na cozinha"}).json()
+    expected = "ensemble" if health["ensemble_loaded"] else "bert" if health["bert_loaded"] else "svm"
+    assert body["verdict_model"] == expected
+    if health["bert_loaded"]:
+        assert 0 <= body["bert_probability"] <= 1
+        assert len(body["bert_words"]) == 6
+
+
+def test_llm_endpoint_is_disabled_without_key(client, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert client.post("/api/llm-explain", json={"text": "oi"}).status_code == 503
 
 
 def test_demo_page_is_served(client):

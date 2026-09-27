@@ -1,7 +1,15 @@
-# Runtime (API server). Inference needs only NumPy and spaCy: the model is plain JSON.
+# Runtime (API server). No training happens here.
+--extra-index-url https://download.pytorch.org/whl/cpu
 fastapi==0.141.1
 uvicorn[standard]==0.54.0
 pydantic==2.13.5
 numpy==2.5.3
+scipy==1.18.1
+scikit-learn==1.9.1
+joblib==1.6.0
 spacy==3.8.16
 pt_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.8.0/pt_core_news_sm-3.8.0-py3-none-any.whl
+torch==2.14.0
+transformers==5.17.0
+huggingface_hub==1.33.0
+anthropic==1.8.0

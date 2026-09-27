@@ -3,6 +3,8 @@
   var root = document.documentElement;
   var text = $("text");
   var timer = null, seq = 0;
+  var lastResult = null, lastRtt = 0, lastCard = null, health = {};
+  var view = "bert";
 
   var EXAMPLES = [
     "Lugar de mulher é na cozinha",
@@ -14,8 +16,15 @@
 
   function isEn() { return root.lang === "en"; }
   function t(pt, en) { return isEn() ? en : pt; }
+  function fmt(x, d) { var s = x.toFixed(d); return isEn() ? s : s.replace(".", ","); }
+  function pct(x) { return fmt(x * 100, 1) + "%"; }
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
 
-  // ---------- Language ----------
+  // ---------- Controls ----------
   $("lang").addEventListener("click", function () {
     root.lang = isEn() ? "pt-BR" : "en";
     try { localStorage.setItem("lang", root.lang); } catch (e) {}
@@ -23,7 +32,6 @@
     if (lastResult) render(lastResult, lastRtt);
   });
 
-  // ---------- Examples ----------
   EXAMPLES.forEach(function (ex) {
     var b = document.createElement("button");
     b.type = "button";
@@ -33,17 +41,27 @@
     $("examples").appendChild(b);
   });
 
-  text.addEventListener("input", function () { schedule(250); });
+  document.querySelectorAll(".tab").forEach(function (b) {
+    b.addEventListener("click", function () { setView(b.dataset.view); });
+  });
+
+  function setView(v) {
+    view = v;
+    document.querySelectorAll(".tab").forEach(function (b) { b.classList.toggle("on", b.dataset.view === v); });
+    document.body.classList.toggle("view-svm", v === "svm");
+    if (lastResult) render(lastResult, lastRtt);
+  }
+
+  text.addEventListener("input", function () { schedule(300); });
 
   function schedule(delay) {
     $("count").textContent = text.value.length + "/1000";
+    if (health.llm_available) $("llm-out").textContent = "";
     clearTimeout(timer);
     timer = setTimeout(analyze, delay);
   }
 
   // ---------- API ----------
-  var lastResult = null, lastRtt = 0, lastCard = null;
-
   function analyze() {
     var value = text.value;
     if (!value.trim()) { clearView(); return; }
@@ -69,58 +87,101 @@
 
   function clearView() {
     lastResult = null;
-    $("lens").innerHTML = "";
-    $("parts").innerHTML = "";
+    ["lens", "parts", "models"].forEach(function (id) { $(id).innerHTML = ""; });
     $("verdict").textContent = "…";
     $("verdict").className = "verdict";
     $("gauge").style.width = "0";
-    ["score", "latency", "rtt"].forEach(function (id) { $(id).textContent = "–"; });
+    $("latency").textContent = $("rtt").textContent = "–";
   }
 
   // ---------- Rendering ----------
-  function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
-
   function render(res, rtt) {
     var yes = res.label === 1;
     $("verdict").textContent = yes ? t("Traços de misoginia", "Misogyny traits") : t("Sem traços de misoginia", "No misogyny traits");
     $("verdict").className = "verdict " + (yes ? "yes" : "no");
+    $("verdict-model").textContent = res.verdict_model;
 
-    // Gauge: score clipped to [-2, 2], filled from the center.
-    var s = Math.max(-2, Math.min(2, res.decision)), g = $("gauge");
-    g.style.width = (Math.abs(s) / 4 * 100) + "%";
-    g.style.left = s >= 0 ? "50%" : (50 - Math.abs(s) / 4 * 100) + "%";
-    g.className = "gauge-fill " + (s >= 0 ? "pos" : "neg");
+    // Gauge: probability around 50% when available, else the SVM score clipped to [-2, 2].
+    var g = $("gauge"), frac;
+    if (res.probability !== null) {
+      frac = res.probability - 0.5;              // [-0.5, 0.5]
+      $("gauge-mid-label").textContent = "50%";
+    } else {
+      frac = Math.max(-2, Math.min(2, res.svm_decision)) / 4;
+      $("gauge-mid-label").textContent = "0";
+    }
+    g.style.width = (Math.abs(frac) * 100) + "%";
+    g.style.left = frac >= 0 ? "50%" : (50 - Math.abs(frac) * 100) + "%";
+    g.className = "gauge-fill " + (frac >= 0 ? "pos" : "neg");
 
-    $("score").textContent = (res.decision >= 0 ? "+" : "") + res.decision.toFixed(3);
-    $("latency").textContent = res.latency_ms.toFixed(1) + " ms";
-    $("rtt").textContent = rtt.toFixed(0) + " ms";
+    var rows = [];
+    if (res.probability !== null && res.verdict_model === "ensemble") rows.push(["ensemble", pct(res.probability)]);
+    if (res.bert_probability !== null) rows.push(["BERTimbau", pct(res.bert_probability)]);
+    rows.push(["SVM", (res.svm_decision >= 0 ? "+" : "") + fmt(res.svm_decision, 2)]);
+    $("models").innerHTML = rows.map(function (r) { return "<div><dt>" + r[0] + "</dt><dd>" + r[1] + "</dd></div>"; }).join("");
 
-    // Highlighted text, rebuilt from the original string using token offsets.
+    $("latency").textContent = fmt(res.latency_ms, 0) + " ms";
+    $("rtt").textContent = fmt(rtt, 0) + " ms";
+
+    var useBert = view === "bert" && res.bert_words;
+    document.querySelector('.tab[data-view="bert"]').disabled = !res.bert_words;
+    if (useBert) renderBert(res); else renderSvm(res);
+  }
+
+  function highlight(spans) {
+    // spans: [{start, end, value, cls, tip}] sorted by start
     var src = text.value, html = "", pos = 0;
-    var maxAbs = res.tokens.reduce(function (m, tk) { return Math.max(m, Math.abs(tk.contribution)); }, 0.05);
-    res.tokens.forEach(function (tk) {
-      if (tk.start < pos) return;
-      html += escapeHtml(src.slice(pos, tk.start));
-      var c = tk.contribution, a = Math.min(1, Math.abs(c) / maxAbs);
-      var cls = "tk";
-      if (!tk.lemma) cls += " stop";
-      else if (!tk.in_vocabulary) cls += " oov";
-      if (tk.lexicon === "misogino") cls += " lexi";
-      var style = c > 0 ? "--a:" + (0.15 + 0.75 * a).toFixed(2) + ";--c:255,106,43"
-                : c < 0 ? "--a:" + (0.15 + 0.75 * a).toFixed(2) + ";--c:200,245,58" : "";
-      var tip = tk.lemma ? (t("lema", "lemma") + ": " + tk.lemma + " · " + (c >= 0 ? "+" : "") + c.toFixed(3)) : t("ignorada (stopword ou símbolo)", "ignored (stopword or symbol)");
-      if (c && a > 0.45) cls += " strong";
-      html += '<span class="' + cls + (c ? " on" : "") + '" style="' + style + '" title="' + escapeHtml(tip) + '">' + escapeHtml(src.slice(tk.start, tk.end)) + "</span>";
-      pos = tk.end;
+    var maxAbs = spans.reduce(function (m, s) { return Math.max(m, Math.abs(s.value)); }, 0.05);
+    spans.forEach(function (s) {
+      if (s.start < pos) return;
+      html += escapeHtml(src.slice(pos, s.start));
+      var a = Math.min(1, Math.abs(s.value) / maxAbs), cls = "tk " + (s.cls || "");
+      var style = "";
+      if (s.value) {
+        cls += " on" + (a > 0.45 ? " strong" : "");
+        style = "--a:" + (0.15 + 0.75 * a).toFixed(2) + ";--c:" + (s.value > 0 ? "255,106,43" : "200,245,58");
+      }
+      html += '<span class="' + cls + '" style="' + style + '" title="' + escapeHtml(s.tip) + '">' + escapeHtml(src.slice(s.start, s.end)) + "</span>";
+      pos = s.end;
     });
-    html += escapeHtml(src.slice(pos));
-    $("lens").innerHTML = html;
+    $("lens").innerHTML = html + escapeHtml(src.slice(pos));
+  }
 
-    // Breakdown: top words by |contribution|, then lexicon and bias.
+  function bars(items) {
+    var scale = items.reduce(function (m, r) { return Math.max(m, Math.abs(r.value)); }, 0.05);
+    $("parts").innerHTML = items.map(function (r) {
+      var w = Math.abs(r.value) / scale * 50;
+      return '<li class="' + (r.special ? "special" : "") + '"><span class="pn">' + escapeHtml(r.name) + '</span>' +
+        '<span class="bar"><span class="b ' + (r.value >= 0 ? "pos" : "neg") + '" style="width:' + w + "%;" + (r.value >= 0 ? "left:50%" : "right:50%") + '"></span></span>' +
+        '<span class="pv">' + (r.value >= 0 ? "+" : "") + fmt(r.value, 3) + "</span></li>";
+    }).join("");
+  }
+
+  function renderBert(res) {
+    highlight(res.bert_words.map(function (w) {
+      return { start: w.start, end: w.end, value: w.importance,
+               tip: t("sem esta palavra, a probabilidade muda ", "without this word, probability changes ") + (w.importance >= 0 ? "−" : "+") + pct(Math.abs(w.importance)) };
+    }));
+    $("lens-note").textContent = t(
+      "Oclusão: o BERT roda de novo sem cada palavra. Laranja = sem ela, a probabilidade de traços cai. É uma estimativa de importância, não uma soma exata.",
+      "Occlusion: BERT runs again without each word. Orange = without it, the probability of traits drops. It estimates importance; it is not an exact sum.");
+    $("parts-title").textContent = t("Palavras que mais pesaram (BERT)", "Most influential words (BERT)");
+    var words = res.bert_words.slice().sort(function (a, b) { return Math.abs(b.importance) - Math.abs(a.importance); }).slice(0, 7);
+    bars(words.map(function (w) { return { name: w.text, value: w.importance }; }));
+    $("parts-note").textContent = t("Variação da probabilidade de traços ao remover cada palavra.", "Change in the probability of traits when each word is removed.");
+  }
+
+  function renderSvm(res) {
+    highlight(res.tokens.map(function (tk) {
+      var cls = !tk.lemma ? "stop" : !tk.in_vocabulary ? "oov" : "";
+      if (tk.lexicon === "misogino") cls += " lexi";
+      return { start: tk.start, end: tk.end, value: tk.contribution, cls: cls,
+               tip: tk.lemma ? (t("lema", "lemma") + ": " + tk.lemma + " · " + (tk.contribution >= 0 ? "+" : "") + fmt(tk.contribution, 3)) : t("ignorada (stopword ou símbolo)", "ignored (stopword or symbol)") };
+    }));
+    $("lens-note").textContent = t(
+      "SVM linear: a pontuação é exatamente a soma das palavras + léxico + viés.",
+      "Linear SVM: the score is exactly the sum of words + lexicon + bias.");
+    $("parts-title").textContent = t("De onde vem a pontuação do SVM", "Where the SVM score comes from");
     var seen = {}, words = [];
     res.tokens.forEach(function (tk) {
       if (!tk.lemma || !tk.contribution) return;
@@ -129,40 +190,64 @@
       words.push(seen[tk.lemma]);
     });
     words.sort(function (a, b) { return Math.abs(b.value) - Math.abs(a.value); });
-    var rows = words.slice(0, 6).concat([
+    bars(words.slice(0, 6).concat([
       { name: t("léxico (8 atributos)", "lexicon (8 features)"), value: res.lexicon_contribution, special: true },
       { name: t("viés do modelo", "model bias"), value: res.bias, special: true }
-    ]);
-    var scale = rows.reduce(function (m, r) { return Math.max(m, Math.abs(r.value)); }, 0.1);
-    $("parts").innerHTML = rows.map(function (r) {
-      var w = Math.abs(r.value) / scale * 50;
-      return '<li class="' + (r.special ? "special" : "") + '"><span class="pn">' + escapeHtml(r.name) + '</span>' +
-        '<span class="bar"><span class="b ' + (r.value >= 0 ? "pos" : "neg") + '" style="width:' + w + "%;" + (r.value >= 0 ? "left:50%" : "right:50%") + '"></span></span>' +
-        '<span class="pv">' + (r.value >= 0 ? "+" : "") + r.value.toFixed(3) + "</span></li>";
-    }).join("");
+    ]));
+    $("parts-note").textContent = t("Acima de 0, o SVM marca \"com traços\".", "Above 0, the SVM says \"traits\".");
   }
 
-  // ---------- Model card ----------
-  function pct(x) { var s = (x * 100).toFixed(1) + "%"; return isEn() ? s : s.replace(".", ","); }
-  function num(x) { return isEn() ? x.toFixed(3) : x.toFixed(3).replace(".", ","); }
+  // ---------- LLM second opinion ----------
+  $("llm-btn").addEventListener("click", function () {
+    var value = text.value;
+    if (!value.trim()) return;
+    $("llm-out").textContent = t("Consultando…", "Asking…");
+    fetch("/api/llm-explain", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: value }) })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (j) {
+        $("llm-out").innerHTML = "<b>" + (j.label ? t("Traços de misoginia", "Misogyny traits") : t("Sem traços", "No traits")) +
+          "</b> · " + escapeHtml(j.category) + " · " + t("confiança ", "confidence ") + pct(j.confidence) + "<br>" + escapeHtml(j.explanation) +
+          '<span class="mono small"> · ' + escapeHtml(j.model) + "</span>";
+      })
+      .catch(function () { $("llm-out").textContent = t("Segunda opinião indisponível agora.", "Second opinion unavailable right now."); });
+  });
 
-  function renderCard(m) {
-    if (!m) return;
-    var b = m.bootstrap, L = m.test_lexicon, B = m.test_baseline_tfidf_only;
+  // ---------- Model card ----------
+  function renderCard(c) {
+    if (!c || !c.svm) return;
+    var e = c.ensemble, b = c.bert, s = c.svm;
+    var head = e ? e.test.ensemble : b ? b.test : s.test;
+    var boot = e ? e.test_ensemble_bootstrap : null;
     var items = [
-      ["F1 " + t("(teste)", "(test)"), num(L.f1), t("IC 95% ", "95% CI ") + num(b.f1_ci_lexicon[0]) + " – " + num(b.f1_ci_lexicon[1])],
-      [t("Precisão", "Precision"), pct(L.precision), t("quando marca, costuma acertar", "when it flags, it is usually right")],
-      ["Recall", pct(L.recall), t("deixa passar ", "misses ") + pct(1 - L.recall) + t(" dos casos", " of cases")],
-      [t("Ganho do léxico", "Lexicon gain"), (b.delta_mean >= 0 ? "+" : "") + num(b.delta_mean), t("F1 vs TF-IDF puro · p = ", "F1 vs plain TF-IDF · p = ") + num(b.p_one_sided) + t(" (não significativo)", " (not significant)")],
-      [t("Vazamento removido", "Leak removed"), String(m.leaked_rows_removed), t("linhas do treino iguais ao teste", "training rows equal to test")],
-      [t("Treino", "Training"), m.train_docs.toLocaleString(isEn() ? "en" : "pt-BR"), t("documentos · ", "documents · ") + pct(m.train_positive_rate) + t(" positivos", " positive")]
+      [t("Acurácia (teste)", "Accuracy (test)"), pct(head.accuracy), boot ? t("IC 95% ", "95% CI ") + pct(boot.accuracy_ci95[0]) + " – " + pct(boot.accuracy_ci95[1]) : ""],
+      ["F1 " + t("(teste)", "(test)"), fmt(head.f1, 3), boot ? t("IC 95% ", "95% CI ") + fmt(boot.f1_ci95[0], 3) + " – " + fmt(boot.f1_ci95[1], 3) : ""],
+      [t("Precisão", "Precision"), pct(head.precision), t("quando marca, quase sempre acerta", "when it flags, it is almost always right")],
+      ["Recall", pct(head.recall), t("deixa passar ", "misses ") + pct(1 - head.recall) + t(" dos casos", " of cases")],
+      [t("Vazamento removido", "Leak removed"), String(s.leaked_rows_removed), t("linhas do treino iguais ao teste", "training rows equal to test")],
+      [t("Teste", "Test set"), String(s.test_docs), t("frases, usadas uma vez", "sentences, used once")]
     ];
     $("card").innerHTML = items.map(function (it) {
       return '<div class="stat"><p class="k mono">' + it[0] + '</p><p class="v">' + it[1] + '</p><p class="d">' + it[2] + "</p></div>";
     }).join("");
+
+    var rows = [["SVM (TF-IDF + " + t("léxico", "lexicon") + ")", s.test]];
+    if (b) rows.push(["BERTimbau fine-tuned", b.test]);
+    if (e) rows.push(["Ensemble", e.test.ensemble]);
+    if (c.llm) rows.push(["LLM (" + c.llm.model + ")", c.llm.test]);
+    $("cmp").innerHTML = "<thead><tr><th>" + t("Modelo", "Model") + "</th><th>" + t("Acurácia", "Accuracy") + "</th><th>F1</th><th>" + t("Precisão", "Precision") + "</th><th>Recall</th></tr></thead><tbody>" +
+      rows.map(function (r) {
+        return "<tr><td>" + r[0] + "</td><td>" + pct(r[1].accuracy) + "</td><td>" + fmt(r[1].f1, 3) + "</td><td>" + pct(r[1].precision) + "</td><td>" + pct(r[1].recall) + "</td></tr>";
+      }).join("") + "</tbody>";
   }
 
+  fetch("/api/health").then(function (r) { return r.json(); }).then(function (h) {
+    health = h;
+    setView(h.bert_loaded ? "bert" : "svm");
+    if (!h.llm_available) {
+      $("llm-btn").disabled = true;
+      $("llm-out").textContent = t("Desativado neste servidor (sem chave de API configurada).", "Disabled on this server (no API key configured).");
+    }
+    schedule(0);
+  });
   fetch("/api/model-card").then(function (r) { return r.json(); }).then(function (m) { lastCard = m; renderCard(m); });
-
-  schedule(0);
 })();

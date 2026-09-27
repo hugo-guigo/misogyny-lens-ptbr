@@ -40,5 +40,5 @@ def test_text_without_content_words_falls_back_to_bias_and_lexicon(model):
 
 
 def test_tfidf_vector_is_l2_normalized(model):
-    x = model.tfidf(["mulher", "cozinha", "lugar", "mulher"])
-    assert math.isclose(math.sqrt(sum(v * v for v in x.values())), 1.0, rel_tol=1e-12)
+    x = model.vectorizer.transform(["mulher cozinha lugar mulher"])
+    assert math.isclose(math.sqrt((x.data ** 2).sum()), 1.0, rel_tol=1e-12)

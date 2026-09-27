@@ -23,11 +23,11 @@
 
 <header class="top">
   <div>
-    <p class="kicker"><span data-pt>PLN · modelo linear explicável · pesquisa UFG</span><span data-en>NLP · explainable linear model · UFG research</span></p>
+    <p class="kicker"><span data-pt>PLN · BERTimbau + SVM · pesquisa UFG</span><span data-en>NLP · BERTimbau + SVM · UFG research</span></p>
     <h1>Misogyny <span>Lens</span> PT-BR</h1>
     <p class="sub">
-      <span data-pt>Digite um texto em português e veja, palavra por palavra, o que empurra o modelo para "traços de misoginia" e o que puxa para o outro lado. O modelo é linear, então a explicação é a decomposição exata da decisão, não uma aproximação.</span>
-      <span data-en>Type a Portuguese text and see, word by word, what pushes the model towards "misogyny traits" and what pulls it away. The model is linear, so the explanation is the exact decomposition of the decision, not an approximation.</span>
+      <span data-pt>Digite um texto em português e veja, palavra por palavra, o que empurra os modelos para "traços de misoginia" e o que puxa para o outro lado. Um ensemble de BERTimbau e SVM dá o veredito, com 88% de acurácia no teste.</span>
+      <span data-en>Type a Portuguese text and see, word by word, what pushes the models towards "misogyny traits" and what pulls them away. An ensemble of BERTimbau and an SVM gives the verdict, at 88% test accuracy.</span>
     </p>
   </div>
   <nav class="links">
@@ -53,59 +53,74 @@
   </section>
 
   <section class="panel verdict-panel">
-    <p class="lbl"><span data-pt>Veredito</span><span data-en>Verdict</span></p>
+    <p class="lbl"><span data-pt>Veredito</span><span data-en>Verdict</span> <span class="mono tag" id="verdict-model"></span></p>
     <p id="verdict" class="verdict">…</p>
     <div class="gauge" aria-hidden="true">
       <div class="gauge-mid"></div>
       <div class="gauge-fill" id="gauge"></div>
     </div>
-    <div class="gauge-labels mono"><span data-pt>sem traços</span><span data-en>no traits</span><span>0</span><span data-pt>com traços</span><span data-en>traits</span></div>
+    <div class="gauge-labels mono"><span data-pt>sem traços</span><span data-en>no traits</span><span id="gauge-mid-label">50%</span><span data-pt>com traços</span><span data-en>traits</span></div>
+    <dl class="models mono" id="models"></dl>
     <dl class="stats mono">
-      <div><dt><span data-pt>pontuação</span><span data-en>score</span></dt><dd id="score">–</dd></div>
       <div><dt><span data-pt>servidor</span><span data-en>server</span></dt><dd id="latency">–</dd></div>
       <div><dt><span data-pt>ida e volta</span><span data-en>round trip</span></dt><dd id="rtt">–</dd></div>
     </dl>
   </section>
 
   <section class="panel lens-panel">
-    <p class="lbl"><span data-pt>Explicação palavra por palavra</span><span data-en>Word-by-word explanation</span></p>
+    <div class="lens-head">
+      <p class="lbl"><span data-pt>Explicação palavra por palavra</span><span data-en>Word-by-word explanation</span></p>
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab" data-view="bert" role="tab">BERT · <span data-pt>oclusão</span><span data-en>occlusion</span></button>
+        <button type="button" class="tab" data-view="svm" role="tab">SVM · <span data-pt>exata</span><span data-en>exact</span></button>
+      </div>
+    </div>
     <p id="lens" class="lens"></p>
     <p class="legend mono">
       <span class="sw pos"></span><span data-pt>empurra para traços</span><span data-en>pushes towards traits</span>
       <span class="sw neg"></span><span data-pt>puxa para o outro lado</span><span data-en>pulls away</span>
-      <span class="sw lexi"></span><span data-pt>termo do léxico</span><span data-en>lexicon term</span>
-      <span class="sw off"></span><span data-pt>fora do vocabulário</span><span data-en>out of vocabulary</span>
+      <span class="sw lexi svm-only"></span><span class="svm-only"><span data-pt>termo do léxico</span><span data-en>lexicon term</span></span>
     </p>
+    <p class="note" id="lens-note"></p>
   </section>
 
   <section class="panel parts-panel">
-    <p class="lbl"><span data-pt>De onde vem a pontuação</span><span data-en>Where the score comes from</span></p>
+    <p class="lbl" id="parts-title"></p>
     <ul id="parts" class="parts mono"></ul>
-    <p class="note"><span data-pt>Pontuação = soma das palavras + sinal do léxico (8 atributos) + viés. Acima de 0, o modelo marca "com traços".</span><span data-en>Score = sum of words + lexicon signal (8 features) + bias. Above 0, the model says "traits".</span></p>
+    <p class="note" id="parts-note"></p>
+  </section>
+
+  <section class="panel llm-panel">
+    <div class="lens-head">
+      <p class="lbl"><span data-pt>Segunda opinião de um LLM</span><span data-en>Second opinion from an LLM</span></p>
+      <button type="button" id="llm-btn"><span data-pt>Perguntar ao Claude</span><span data-en>Ask Claude</span></button>
+    </div>
+    <p id="llm-out" class="llm-out"></p>
   </section>
 </main>
 
 <section class="card-section" id="model-card">
   <h2>Model card</h2>
   <div class="cards" id="card"></div>
+  <div class="table-wrap"><table class="cmp mono" id="cmp"></table></div>
   <div class="cols">
     <div>
-      <h3><span data-pt>Modelo</span><span data-en>Model</span></h3>
-      <p><span data-pt>LinearSVC (class_weight balanceado) sobre TF-IDF de lemas do spaCy (pt_core_news_sm) mais 8 atributos do léxico de misoginia V3. Exportado como JSON (vocabulário, IDF e pesos) e servido com NumPy, sem pickle. O treino confere que a versão exportada reproduz o scikit-learn.</span><span data-en>LinearSVC (balanced class weights) on TF-IDF of spaCy lemmas (pt_core_news_sm) plus 8 features from the misogyny lexicon V3. Exported as JSON (vocabulary, IDF and weights) and served with NumPy, no pickle. Training checks that the export reproduces scikit-learn.</span></p>
+      <h3><span data-pt>Modelos</span><span data-en>Models</span></h3>
+      <p><span data-pt>BERTimbau (neuralmind/bert-base-portuguese-cased) com fine-tuning em GPU no Google Colab: 3 épocas, a melhor escolhida na validação. SVM linear (scikit-learn) sobre TF-IDF de lemas do spaCy mais 8 atributos do léxico. O ensemble é uma regressão logística sobre as duas pontuações, ajustada só na validação.</span><span data-en>BERTimbau (neuralmind/bert-base-portuguese-cased) fine-tuned on a GPU in Google Colab: 3 epochs, the best picked on validation. Linear SVM (scikit-learn) on TF-IDF of spaCy lemmas plus 8 lexicon features. The ensemble is a logistic regression over both scores, fitted on validation only.</span></p>
     </div>
     <div>
-      <h3><span data-pt>Dados</span><span data-en>Data</span></h3>
-      <p><span data-pt>Corpus unificado de HateBR, ToLD-BR e Portuguese Hate Speech, deduplicado. O teste tem 333 frases rotuladas do ToLD-BR. Essas frases também estavam no corpus de treino, então elas e suas duplicatas são removidas antes do treino. Sem isso, o F1 sobe para cerca de 0,87 por memorização.</span><span data-en>Unified corpus from HateBR, ToLD-BR and Portuguese Hate Speech, deduplicated. The test set has 333 labeled ToLD-BR sentences. They also appeared in the training corpus, so they and their duplicates are removed before training. Without that, F1 climbs to about 0.87 through memorization.</span></p>
+      <h3><span data-pt>Dados e vazamento</span><span data-en>Data and leakage</span></h3>
+      <p><span data-pt>Corpus unificado de HateBR, ToLD-BR e Portuguese Hate Speech, deduplicado e dividido em treino e validação. O teste tem 333 frases rotuladas do ToLD-BR. Essas frases também estavam no corpus, então elas e suas duplicatas saem do treino. O teste foi usado uma única vez por modelo final.</span><span data-en>Unified corpus from HateBR, ToLD-BR and Portuguese Hate Speech, deduplicated and split into train and validation. The test set has 333 labeled ToLD-BR sentences. They also appeared in the corpus, so they and their duplicates leave training. Each final model scored the test set once.</span></p>
     </div>
     <div>
       <h3><span data-pt>Limitações</span><span data-en>Limitations</span></h3>
-      <p><span data-pt>Unigramas não entendem ironia, negação ou contexto. Palavras como "feminista" aparecem em discurso político e podem gerar falsos positivos. O ganho do léxico sobre o TF-IDF puro não é estatisticamente significativo. O recall é baixo: o modelo deixa passar muitos casos.</span><span data-en>Unigrams miss irony, negation and context. Words like "feminista" show up in political speech and can cause false positives. The lexicon's gain over plain TF-IDF is not statistically significant. Recall is low: the model misses many cases.</span></p>
+      <p><span data-pt>O teste é pequeno (333 frases), por isso os intervalos de confiança são largos. A oclusão do BERT é uma estimativa de importância, não uma decomposição exata. O modelo deixa passar cerca de 1 em cada 4 casos, e os dados de redes sociais carregam vieses de quem anotou.</span><span data-en>The test set is small (333 sentences), so confidence intervals are wide. BERT occlusion estimates importance; it is not an exact decomposition. The model misses about 1 in 4 cases, and social media data carries its annotators' biases.</span></p>
     </div>
   </div>
 </section>
 
 <footer class="foot mono">
-  <p><span data-pt>Construído por</span><span data-en>Built by</span> <a href="https://hugo-guigo.github.io">Hugo Guilherme de Assis Paula</a> · FastAPI · spaCy · NumPy · <a href="https://github.com/hugo-guigo/lexico-misoginia-ptbr"><span data-pt>pesquisa original</span><span data-en>original research</span></a></p>
+  <p><span data-pt>Construído por</span><span data-en>Built by</span> <a href="https://hugo-guigo.github.io">Hugo Guilherme de Assis Paula</a> · FastAPI · PyTorch · scikit-learn · spaCy · <a href="https://github.com/hugo-guigo/lexico-misoginia-ptbr"><span data-pt>pesquisa original</span><span data-en>original research</span></a></p>
 </footer>
 
 <script src="/static/app.js"></script>

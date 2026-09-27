@@ -1,0 +1,55 @@
+{
+  "model": "neuralmind/bert-base-portuguese-cased",
+  "max_len": 64,
+  "batch": 16,
+  "lr": 2e-05,
+  "epochs_run": 3,
+  "selected_epoch": 2,
+  "train_subsample": 11120,
+  "docs_after_dedup": 35791,
+  "leaked_rows_removed": 371,
+  "train_docs": 31878,
+  "val_docs": 3542,
+  "test_docs": 333,
+  "train_positive_rate": 0.1744,
+  "test_positive": 133,
+  "history": [
+    {
+      "epoch": 1,
+      "minutes": 1.1,
+      "val_accuracy": 0.8018,
+      "val_f1": 0.6189,
+      "val_precision": 0.4657,
+      "val_recall": 0.9223
+    },
+    {
+      "epoch": 2,
+      "minutes": 1.1,
+      "val_accuracy": 0.8549,
+      "val_f1": 0.6771,
+      "val_precision": 0.5534,
+      "val_recall": 0.8722
+    },
+    {
+      "epoch": 3,
+      "minutes": 1.1,
+      "val_accuracy": 0.8509,
+      "val_f1": 0.6696,
+      "val_precision": 0.5459,
+      "val_recall": 0.8657
+    }
+  ],
+  "val": {
+    "accuracy": 0.8549,
+    "f1": 0.6771,
+    "precision": 0.5534,
+    "recall": 0.8722
+  },
+  "test": {
+    "accuracy": 0.8739,
+    "f1": 0.819,
+    "precision": 0.9596,
+    "recall": 0.7143
+  },
+  "total_minutes": 3.8
+}

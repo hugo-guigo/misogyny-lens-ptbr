@@ -3,3 +3,7 @@ data/
 __pycache__/
 *.pyc
 .pytest_cache/
+artifacts/bert/
+colab/colab_bundle.zip
+resultados_colab.zip
+bert_train.log

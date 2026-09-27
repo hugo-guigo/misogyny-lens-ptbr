@@ -1,7 +1,5 @@
 -r requirements.txt
-# Training and tests
-scikit-learn==1.9.1
+# Tests and data tooling. Model training runs on a GPU in Google Colab (colab/).
 pandas==3.0.6
-scipy==1.18.1
 pytest==9.1.1
 httpx==0.28.1
