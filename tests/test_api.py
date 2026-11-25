@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import MAX_CHARS, app
+from app.main import MAX_CHARS, app, state
 
 
 @pytest.fixture(scope="module")
@@ -45,3 +45,26 @@ def test_verdict_comes_from_the_best_loaded_model(client):
         assert 0 <= body["bert_probability"] <= 1
         assert len(body["bert_words"]) == 6
 
+
+
+def test_live_answers_without_touching_the_models(client, monkeypatch):
+    monkeypatch.setitem(state, "svm", None)
+    assert client.get("/api/live").json() == {"status": "alive"}
+
+
+def test_ready_when_the_required_models_are_loaded(client):
+    r = client.get("/api/ready")
+    assert r.status_code == 200 and r.json() == {"status": "ready"}
+
+
+def test_not_ready_when_bert_is_required_but_missing(client, monkeypatch):
+    monkeypatch.setitem(state, "require_bert", True)
+    monkeypatch.setitem(state, "bert", None)
+    r = client.get("/api/ready")
+    assert r.status_code == 503 and r.json()["missing"] == ["bert"]
+
+
+def test_ready_without_bert_when_not_required(client, monkeypatch):
+    monkeypatch.setitem(state, "require_bert", False)
+    monkeypatch.setitem(state, "bert", None)
+    assert client.get("/api/ready").status_code == 200

@@ -1,0 +1,7 @@
+# Imagem do cluster local: a imagem da API (Dockerfile) com o BERT fine-tuned dentro.
+# Assim cada pod sobe sem baixar 436 MB do Hugging Face (docs/specs/kubernetes.md, decisão 3).
+#   docker build -t misogyny-lens:base .
+#   docker build -f Dockerfile.cluster -t misogyny-lens:cluster .
+# O contexto deste build só leva artifacts/bert (ver Dockerfile.cluster.dockerignore).
+FROM misogyny-lens:base
+COPY --chown=app:app artifacts/bert/ artifacts/bert/

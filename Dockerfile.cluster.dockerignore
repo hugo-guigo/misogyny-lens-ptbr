@@ -1,0 +1,3 @@
+# Só o BERT entra no contexto da imagem do cluster; o resto vem da imagem base.
+*
+!artifacts/bert

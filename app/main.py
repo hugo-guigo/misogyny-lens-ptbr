@@ -1,11 +1,15 @@
 """HTTP API and static demo page.
 
-GET  /api/health      liveness plus which models are loaded
+GET  /api/health      status plus which models are loaded (kept for the CI and the README)
+GET  /api/live        the process answers (Kubernetes startup and liveness probes)
+GET  /api/ready       200 only when the models this deploy requires are loaded (readiness probe)
 GET  /api/model-card  test metrics of every model
 POST /api/analyze     ensemble verdict + SVM exact explanation + BERT occlusion
 GET  /                demo page (static/)
 
-BERTimbau is optional: without artifacts/bert the API serves the SVM alone.
+BERTimbau is optional: without artifacts/bert the API serves the SVM alone. A deploy that must
+serve BERT sets REQUIRE_BERT=1: if the weights are missing, the process stays alive but not ready,
+so Kubernetes sends it no traffic and restarting it would not help.
 """
 from __future__ import annotations
 
@@ -19,7 +23,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -57,6 +61,7 @@ async def lifespan(app: FastAPI):
         state["bert"] = BertModel(ART / "bert", threads=int(os.environ.get("TORCH_THREADS", "2")))
         if (ART / "ensemble.joblib").exists():
             state["ensemble"] = joblib.load(ART / "ensemble.joblib")
+    state["require_bert"] = os.environ.get("REQUIRE_BERT", "0") == "1"
     state["card"] = {"svm": _read_json("svm_metrics.json"), "bert": _read_json("bert_metrics.json"),
                      "ensemble": _read_json("ensemble_metrics.json")}
     yield
@@ -114,6 +119,26 @@ def health():
     return {"status": "ok", "spacy_model": SPACY_MODEL, "vocabulary_size": len(svm.vocab),
             "bert_loaded": state["bert"] is not None, "ensemble_loaded": state["ensemble"] is not None,
             "data_commit": svm.meta.get("data_commit")}
+
+
+# The probes are async on purpose: sync routes run in the threadpool, where under load they could wait
+# behind /api/analyze requests and time out, and the liveness probe would restart a healthy pod.
+@app.get("/api/live")
+async def live():
+    # No model work here: a slow or failing model must not get a healthy process restarted.
+    return {"status": "alive"}
+
+
+@app.get("/api/ready")
+async def ready():
+    missing = []
+    if state.get("svm") is None:
+        missing.append("svm")
+    if state.get("require_bert") and state.get("bert") is None:
+        missing.append("bert")
+    if missing:
+        return JSONResponse(status_code=503, content={"status": "not ready", "missing": missing})
+    return {"status": "ready"}
 
 
 @app.get("/api/model-card")

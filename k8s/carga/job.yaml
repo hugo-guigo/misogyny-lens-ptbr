@@ -1,0 +1,30 @@
+# Teste de carga de dentro do cluster: chama o Service (http://lens), como um cliente de verdade.
+# O kubectl port-forward não serve aqui: ele prende um pod só e cai quando esse pod sai.
+#
+#   kubectl create configmap lens-carga --from-file=bench/load_test.py --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl create -f k8s/carga/job.yaml          (generateName: cada rodada é um Job novo)
+#   kubectl logs -f job/<nome>
+# Rodada mais longa (teste do HPA): sed 's/"600"/"1500"/' k8s/carga/job.yaml | kubectl create -f -
+# Uma conexão nova por requisição: acrescentar "--no-keepalive" aos argumentos (ver o bloco 3 da spec).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: lens-carga-
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: carga
+          # A mesma imagem da API: já tem Python e httpx (dependência do huggingface_hub).
+          image: misogyny-lens:cluster
+          imagePullPolicy: Never
+          command: ["python", "/carga/load_test.py", "--url", "http://lens",
+                    "--requests", "600", "--concurrency", "10"]
+          volumeMounts:
+            - {name: script, mountPath: /carga}
+      volumes:
+        - name: script
+          configMap: {name: lens-carga}
