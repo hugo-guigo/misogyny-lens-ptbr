@@ -216,3 +216,15 @@ as decisões e a seção "o que acontece quando dou `kubectl apply`".
   - **README:** seção do Kubernetes com os números; os "~2 GB" viraram 437 a 619 MiB medidos; o
     tamanho da imagem passou a ser o da camada (1,65 GB do `pip install`), porque o `docker image ls`
     soma a camada compactada e a descompactada.
+  - **Primeira rodada do CI (PR #1):** `test` e `docker` passaram; `kubernetes` falhou com 1 erro em
+    20.000 (`ReadError`) na troca de versão (deploy pronto em 7 s, troca em 6 s, 226 req/s, job de
+    5 min 29 s). Causa: ao encerrar, o uvicorn fecha as conexões keep-alive ociosas, e uma requisição
+    enviada nesse instante se perde. O `preStop` não ajuda: ele tira o pod do Service só para
+    conexões novas. No PC deu 0 em 3 rodadas; é uma corrida rara, mas real.
+  - **Decisão do Hugo (opção 1 de 3):** o cliente de teste repete uma vez a requisição numa conexão
+    fechada (`--retry-closed`: `ReadError`, `RemoteProtocolError`, `WriteError`), contada à parte em
+    `retried`. `ConnectError` nunca é repetido, para a contraprova sem probes continuar valendo. A
+    repetição é segura porque o `/api/analyze` não altera nada; um endpoint que grava precisaria de
+    chave de idempotência. Recusadas: tolerar erros no CI (esconderia o achado) e, por agora, a
+    correção no servidor (responder `Connection: close` durante o `preStop`), que fica como próximo
+    passo. 4 testes novos do `load_test.py` com transporte simulado (33 no total).

@@ -139,7 +139,12 @@ Training never runs on the serving machine.
 GitHub Actions runs the test suite, builds the Docker image, starts the container and calls `/api/health` and `/api/analyze` against it.
 A second job builds the SVM-only image, creates a kind cluster, deploys `k8s/ci`, runs a smoke test through the Service and
 a rolling update under load that must finish with 0 errors (`k8s/ci/testar.sh`). It does not test BERT, which is not in that
-image. GitHub Pages serves `docs/` from `main`.
+image. The first CI run failed with 1 error in 20,000 requests (`ReadError`): when the old pod shuts down, uvicorn closes
+its idle kept-alive connections, and a request sent on one at that instant is lost. The `preStop` pause does not help,
+since it only stops new connections. The test client now retries such a request once (`--retry-closed`, counted
+separately as `retried`), as a well-behaved client or a proxy would; this is safe only because `/api/analyze` changes
+nothing. A refused connection is never retried. The server-side fix, answering with `Connection: close` while
+draining, is not done. GitHub Pages serves `docs/` from `main`.
 
 ## Limitations
 

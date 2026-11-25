@@ -26,8 +26,15 @@ print(r["label_name"], r["svm_decision"])'
 
 echo "== troca de versão sob carga ($REQUISICOES requisições)"
 kubectl create configmap lens-carga --from-file=bench/load_test.py --dry-run=client -o yaml | kubectl apply -f -
-job=$(sed -e 's/misogyny-lens:cluster/misogyny-lens:ci/' -e "s/\"600\"/\"$REQUISICOES\"/" k8s/carga/job.yaml \
-      | kubectl create -f - -o name)
+# --retry-closed: uma requisição numa conexão keep-alive que o pod antigo fechou ao encerrar é
+# repetida uma vez (o /api/analyze não altera nada). O CI pegou 1 em 20.000 sem isso (bloco 4 da spec).
+manifesto=$(sed -e 's/misogyny-lens:cluster/misogyny-lens:ci/' -e "s/\"600\"/\"$REQUISICOES\"/" \
+                -e 's/"--concurrency", "10"\]/"--concurrency", "10", "--retry-closed"]/' k8s/carga/job.yaml)
+# Se o job.yaml mudar de formato, o sed não acha o texto e não avisa: confere as três trocas.
+for esperado in "misogyny-lens:ci" "\"$REQUISICOES\"" "--retry-closed"; do
+  grep -qF -- "$esperado" <<<"$manifesto" || { echo "job.yaml mudou: falta $esperado no manifesto"; exit 1; }
+done
+job=$(kubectl create -f - -o name <<<"$manifesto")
 seletor="batch.kubernetes.io/job-name=${job#*/}"
 # O Job cria o pod logo depois: sem esperar ele existir, o kubectl wait sai com "no matching resources".
 for _ in $(seq 1 60); do [ -n "$(kubectl get pod -l "$seletor" -o name)" ] && break; sleep 2; done
@@ -55,6 +62,7 @@ kubectl logs "$job" > carga.json
 import json
 t = open("carga.json").read()
 r = json.loads(t[t.find("{"):])
-print({k: r[k] for k in ("requests", "errors", "error_kinds", "elapsed_s", "throughput_rps")})
+print({k: r[k] for k in ("requests", "errors", "error_kinds", "retried", "retried_kinds", "elapsed_s",
+                         "throughput_rps")})
 assert r["errors"] == 0, "houve erros durante a troca de versão"
 PY
