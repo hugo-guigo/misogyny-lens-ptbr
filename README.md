@@ -59,7 +59,8 @@ With 10 concurrent clients on the SVM path, p95 rises to 282 ms while server-sid
 
 ## API (Docker)
 
-The full ensemble needs a server with ~2 GB of RAM, so it ships as a Docker image instead of a hosted endpoint:
+The full ensemble ships as a Docker image instead of a hosted endpoint. Measured in a container with BERT
+loaded: 437 MiB idle and 619 MiB at peak under 10 concurrent clients. The `pip install` layer alone is 1.65 GB, most of it PyTorch.
 
 ```bash
 docker build -t misogyny-lens . && docker run -p 8000:7860 -e BERT_REPO=hugo-guigo/bertimbau-misoginia-ptbr misogyny-lens
@@ -72,7 +73,48 @@ curl -X POST http://localhost:8000/api/analyze \
   -d '{"text": "Lugar de mulher é na cozinha"}'
 ```
 
-Other endpoints: `GET /api/health`, `GET /api/model-card`. Inputs must have 1 to 1,000 characters.
+Other endpoints: `GET /api/health`, `GET /api/model-card`, `GET /api/live` and `GET /api/ready` (the
+Kubernetes probes; with `REQUIRE_BERT=1`, ready returns 503 until BERT is loaded). Inputs must have 1 to
+1,000 characters.
+
+## Kubernetes (local kind cluster)
+
+A local study cluster, not a hosted service: [kind](https://kind.sigs.k8s.io) (Kubernetes in a Docker
+container, one node), manifests with Kustomize. Decisions and every measurement are in
+[docs/specs/kubernetes.md](docs/specs/kubernetes.md).
+
+```bash
+kind create cluster --config k8s/kind.yaml
+docker build -t misogyny-lens:base . && docker build -f Dockerfile.cluster -t misogyny-lens:cluster .
+kind load docker-image misogyny-lens:cluster --name lens       # took ~8 min on the i3
+kubectl apply -k k8s/metrics-server && kubectl apply -k k8s/base
+kubectl port-forward svc/lens 8080:80
+```
+
+- **Image:** `Dockerfile.cluster` adds the fine-tuned BERT (436 MB) to the API image, so a new pod does not
+  download it. The browser model (`artifacts/onnx`, 521 MB) left the API image: the `COPY artifacts/` layer
+  went from 546 MB to 152 kB.
+- **Probes:** the port only opens after SVM, spaCy and BERT load. A startup probe on `/api/live` holds the
+  other two for up to 120 s, liveness restarts a hung process, readiness on `/api/ready` keeps a pod out of
+  the Service until its models are loaded. Without probes the pod was "ready" 2 s after creation and the API
+  answered 12 s after the container started; with them, Ready means the API answers (18 s from scheduling).
+  A version without BERT and `REQUIRE_BERT=1` stayed alive, out of the Service, and the rollout stopped while
+  the old pod kept serving.
+- **Graceful shutdown:** with `sh -c "uvicorn ..."` as PID 1, SIGTERM never reached uvicorn and the pod took
+  32 s to die (grace period, then SIGKILL). With `exec`, uvicorn is PID 1 and the pod leaves in 9 s (5 s
+  `preStop` so the Service drops it first, then a clean shutdown).
+- **Resources:** requests 1 CPU / 512 Mi, limits 2 CPU / 1 Gi, from a run without limits (peak 3.6 cores,
+  619 MiB). The 2-core limit did not cost throughput (4.0 vs 4.1 req/s, one run each).
+- **Rolling update under load** (`maxSurge: 1`, `maxUnavailable: 0`; 600 requests from a Job inside the
+  cluster, through the Service): 0 errors in 2 runs. The same rollout without probes and `preStop`: 472
+  connection errors (an inflated count, since a refused connection fails instantly and the clients do not
+  wait, but it shows the outage).
+- **HPA** (1 to 3 replicas at 70% of the CPU request): it scaled out in 34 s and back in ~90 s after the
+  load. The third replica stays Pending: the system pods reserve 1,050m of the node's 4 cores. The new pod
+  first received **0 requests**: a Service picks the pod per connection, and the load test's keep-alive
+  connections were opened before the scale-out. With a new connection per request the new pod took 591 of
+  1,500 requests and throughput went from 5.8 to 8.0 req/s, with the i3 then at 100%. Spreading kept-alive
+  traffic needs per-request (layer 7) balancing, which this cluster does not have.
 
 ## Run locally
 
@@ -94,7 +136,10 @@ Training never runs on the serving machine.
 
 ## CI
 
-GitHub Actions runs the test suite, builds the Docker image, starts the container and calls `/api/health` and `/api/analyze` against it. GitHub Pages serves `docs/` from `main`.
+GitHub Actions runs the test suite, builds the Docker image, starts the container and calls `/api/health` and `/api/analyze` against it.
+A second job builds the SVM-only image, creates a kind cluster, deploys `k8s/ci`, runs a smoke test through the Service and
+a rolling update under load that must finish with 0 errors (`k8s/ci/testar.sh`). It does not test BERT, which is not in that
+image. GitHub Pages serves `docs/` from `main`.
 
 ## Limitations
 
@@ -102,5 +147,7 @@ GitHub Actions runs the test suite, builds the Docker image, starts the containe
 - BERT occlusion estimates importance; it is not an exact attribution.
 - The ensemble still misses about 1 in 4 positive cases.
 - The data comes from social media and carries the biases of its platforms and annotators.
+- The Kubernetes numbers come from one node on one PC (i3-9100F, 4 cores), mostly one run per setting. The
+  ensemble was saved with scikit-learn 1.6.1 and the image uses 1.9.1 (the API logs an `InconsistentVersionWarning`).
 
 Built by [Hugo Guilherme de Assis Paula](https://hugo-guigo.github.io). Research advised by Prof. Deborah Silva Alves Fernandes (INF/UFG).

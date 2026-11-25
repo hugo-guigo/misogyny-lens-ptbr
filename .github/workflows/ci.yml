@@ -39,3 +39,27 @@ jobs:
         if: always()
         run: docker logs lens || true
 
+
+  # Deploy num cluster Kubernetes efêmero (kind) com a imagem só com SVM; ver docs/specs/kubernetes.md.
+  kubernetes:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (SVM only)
+        run: docker build -t misogyny-lens:ci .
+      - uses: helm/kind-action@v1.12.0
+        with:
+          version: v0.33.0
+          cluster_name: lens
+          config: k8s/kind.yaml
+      - name: Load image into the node
+        run: kind load docker-image misogyny-lens:ci --name lens
+      - name: Deploy, smoke test and rolling update under load
+        run: bash k8s/ci/testar.sh
+      - name: Cluster state
+        if: always()
+        run: |
+          kubectl get pods,svc,endpointslices -o wide || true
+          kubectl get events --sort-by=.lastTimestamp | tail -30 || true
+          kubectl logs deploy/lens --tail=50 || true

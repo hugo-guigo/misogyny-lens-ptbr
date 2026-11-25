@@ -1,0 +1,15 @@
+# Overlay do CI: a mesma base, com a imagem só com SVM (o Dockerfile normal, sem o BERT).
+#   kubectl apply -k k8s/ci
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+images:
+  - name: misogyny-lens
+    newTag: ci
+configMapGenerator:
+  - name: lens-config
+    behavior: merge
+    literals:
+      - ENABLE_BERT=0
+      - REQUIRE_BERT=0   # sem isso, a imagem sem BERT nunca ficaria pronta

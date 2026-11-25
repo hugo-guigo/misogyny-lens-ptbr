@@ -201,3 +201,18 @@ as decisões e a seção "o que acontece quando dou `kubectl apply`".
     tráfego chegar ao pod novo e a API passar de ~2 para ~3,5 núcleos, não a porcentagem exata.
     **Fora do escopo:** balanceamento por requisição (um Ingress ou proxy de camada 7, ou o servidor
     fechar conexões antigas). Fica como próximo passo no README.
+- 25/11/2026, bloco 4:
+  - **Overlay `k8s/ci`:** a mesma base, imagem `misogyny-lens:ci` (o Dockerfile normal, só SVM) e
+    `REQUIRE_BERT=0`. Os recursos não mudaram: a imagem só com SVM usa 360 a 374 MiB, e o runner de
+    4 núcleos comporta o pod e a réplica extra da troca de versão. O "menos recursos" da decisão 2
+    não foi preciso.
+  - **`k8s/ci/testar.sh`** (o CI chama; rodado no PC antes do push): deploy, teste de fumaça pelo
+    Service (um pod com `kubectl run`) e troca de versão sob 20.000 requisições, exigindo 0 erros.
+    Se a carga acabar antes da troca, o teste falha como inconclusivo.
+  - **Rodada local:** deploy pronto em 15 s; fumaça ok (`verdict_model: svm`); troca de versão em
+    11 s com 0 erros em 20.000 requisições (158 req/s).
+  - **CI:** job `kubernetes` com `helm/kind-action@v1.12.0` (kind v0.33.0). O tempo no GitHub só
+    existe depois do push.
+  - **README:** seção do Kubernetes com os números; os "~2 GB" viraram 437 a 619 MiB medidos; o
+    tamanho da imagem passou a ser o da camada (1,65 GB do `pip install`), porque o `docker image ls`
+    soma a camada compactada e a descompactada.
