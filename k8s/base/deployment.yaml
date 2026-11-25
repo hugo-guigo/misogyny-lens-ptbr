@@ -7,13 +7,58 @@ spec:
   replicas: 1
   template:
     spec:
+      # Encerramento: o kubelet roda o preStop (5 s), depois manda SIGTERM ao uvicorn, que para de
+      # aceitar conexões e termina as requisições em andamento. Se passar de 20 s no total, SIGKILL.
+      # Uma requisição leva de 0,1 a 0,3 s, então 20 s sobram com folga.
+      terminationGracePeriodSeconds: 20
       containers:
         - name: api
-          # Imagem construída localmente (Dockerfile.cluster, com o BERT dentro) e carregada no nó
-          # (kind load docker-image, ou docker save direto no containerd do nó: ver docs/specs/kubernetes.md). Não
-          # existe em registro nenhum, por isso nunca puxar.
+          # Imagem construída localmente (Dockerfile.cluster, com o BERT dentro) e carregada no nó com
+          # kind load docker-image (ver docs/specs/kubernetes.md). Não existe em registro nenhum, por
+          # isso nunca puxar.
           image: misogyny-lens:cluster
           imagePullPolicy: Never
           ports:
             - name: http
               containerPort: 7860
+          envFrom:
+            - configMapRef:
+                name: lens-config
+          # Medido sem limites (bloco 2, 300 requisições com 10 simultâneas, BERT carregado):
+          # repouso 437 MiB e ~0 de CPU; sob carga, pico de 619 MiB e 3,6 núcleos.
+          # - memória: request perto do repouso; limit ~60% acima do pico (passou, o kernel mata: OOM).
+          # - CPU: request de 1 núcleo, base do HPA; 3 réplicas cabem nos 4 núcleos do nó com o
+          #   control plane. O limit de 2 núcleos freia o pod (o tempo sob carga está na spec).
+          resources:
+            requests:
+              cpu: "1"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          # A porta só abre depois de carregar SVM, spaCy e BERT (12 s medidos no bloco 1). Até lá a
+          # startup probe falha sem consequência e segura as outras duas: até 2 s x 60 = 120 s.
+          startupProbe:
+            httpGet: {path: /api/live, port: http}
+            periodSeconds: 2
+            failureThreshold: 60
+          # Só "o processo responde". Três falhas seguidas (30 s) e o kubelet reinicia o contêiner.
+          livenessProbe:
+            httpGet: {path: /api/live, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          # 200 só com os modelos exigidos carregados (REQUIRE_BERT). Falhou: sai do Service, não
+          # reinicia.
+          readinessProbe:
+            httpGet: {path: /api/ready, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 2
+          lifecycle:
+            # O pod sai do Service (EndpointSlice e kube-proxy) ao mesmo tempo que o preStop começa,
+            # não antes. A pausa dá tempo para as regras mudarem antes de o uvicorn parar de aceitar
+            # conexões; sem ela, requisições novas chegariam a um processo encerrando.
+            preStop:
+              sleep:
+                seconds: 5

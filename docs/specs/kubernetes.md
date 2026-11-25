@@ -107,3 +107,36 @@ as decisões e a seção "o que acontece quando dou `kubectl apply`".
     `ensemble.joblib` foi salvo com scikit-learn 1.6.1 e a imagem usa 1.9.1 (fixado desde set/2026).
     Fica registrado; não é corrigido aqui.
   - Sem `metrics-server` ainda (`kubectl top` falha): entra no bloco 3, com o HPA.
+- 24/11/2026, disco: o C: do PC chegou a 0 GB com as imagens; o Hugo mudou o disco do Docker Desktop
+  para o E:. O `kind load docker-image` de 3 GB levou 487 s, e isso pesa em cada versão nova.
+- 24/11/2026, bloco 2:
+  - **`/api/live` e `/api/ready`** (4 testes novos, 29 no total). A porta só abre depois da carga
+    dos modelos, então só "estar pronto" não separaria as duas rotas. A separação vem de
+    `REQUIRE_BERT` (padrão 0, o Docker e o CI de hoje não mudam): com 1 e sem BERT, `/api/ready` dá
+    503 e `/api/live` dá 200. As duas são `async`, para não esperar na fila de threads do
+    `/api/analyze`; o risco de timeout com rotas síncronas não foi medido.
+  - **Prova no cluster:** uma versão com `ENABLE_BERT=0` e `REQUIRE_BERT=1` ficou viva (0
+    reinícios), fora do Service (`ready=false` no EndpointSlice) e com `/api/ready` 503
+    `missing: ["bert"]`. O rollout travou e o pod antigo seguiu atendendo. Desfeito com
+    `kubectl rollout undo`.
+  - **ConfigMap** pelo `configMapGenerator`: o nome leva o hash do conteúdo, então mudar um valor
+    gera um rolling update.
+  - **SIGTERM:** com `sh -c "uvicorn ..."`, o PID 1 era o `sh` e o uvicorn não recebia o sinal: o pod
+    levou 32 s para sair (prazo de 30 s e SIGKILL), sem "Shutting down" no log. Com `exec`, o
+    uvicorn é o PID 1: o pod sai em 9 s (5 s de `preStop` mais o encerramento), com "Shutting
+    down" até "Finished server process". `terminationGracePeriodSeconds: 20`.
+  - **Subida com as probes:** 18 s do agendamento até `Ready`, com o pod sozinho no nó (5 s até o
+    contêiner iniciar, 6 s de import, 6 s de carga dos modelos). Com o pod antigo ainda no nó, 43 s.
+  - **Recursos**, 300 requisições com 10 simultâneas, pelo port-forward, uma rodada de cada:
+
+    | | Vazão | p50 / p95 (cliente) | CPU (pico) | Memória (pico) | Erros |
+    |---|---|---|---|---|---|
+    | Repouso | | | ~0 | 437 MiB | |
+    | Sem limites | 4,0 req/s | 2,47 / 3,88 s | 3,6 núcleos | 619 MiB | 0 |
+    | Limit de 2 núcleos | 4,1 req/s | 2,38 / 3,72 s | 2,06 núcleos | 570 MiB | 0 |
+
+    Requests: 1 núcleo e 512 Mi. Limits: 2 núcleos e 1 Gi. Acima de 2 núcleos não houve ganho de
+    vazão (hipótese: requisições simultâneas, cada uma com 2 threads do torch, disputam a CPU), por
+    isso mais vazão vem de mais réplicas. Com o control plane (950m), o nó reserva 1.950m de 4.000m:
+    cabem 3 réplicas. Nenhuma probe falhou sob carga (eventos `Unhealthy` só na subida, no
+    encerramento e no teste sem BERT).
