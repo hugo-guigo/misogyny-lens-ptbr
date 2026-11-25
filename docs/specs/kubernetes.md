@@ -228,3 +228,7 @@ as decisões e a seção "o que acontece quando dou `kubectl apply`".
     chave de idempotência. Recusadas: tolerar erros no CI (esconderia o achado) e, por agora, a
     correção no servidor (responder `Connection: close` durante o `preStop`), que fica como próximo
     passo. 4 testes novos do `load_test.py` com transporte simulado (33 no total).
+  - **Segunda rodada do CI (PR #1), verde:** `test` 1 min 13 s, `docker` 3 min 6 s, `kubernetes`
+    4 min 34 s. Deploy pronto em 5 s, troca de versão em 7 s, 0 erros em 20.000 requisições com 3
+    repetidas (`ReadError`), 311 req/s. As 3 repetições mostram que a corrida acontece a cada troca,
+    não foi acaso da primeira rodada.
