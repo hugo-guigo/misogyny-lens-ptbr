@@ -1,0 +1,11 @@
+# Endereço estável dentro do cluster para os pods prontos (o Service segue os pods pelo rótulo).
+apiVersion: v1
+kind: Service
+metadata:
+  name: lens
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

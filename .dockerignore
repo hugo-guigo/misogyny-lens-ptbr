@@ -10,6 +10,7 @@ __pycache__
 train.py
 requirements-dev.txt
 artifacts/bert
+artifacts/onnx
 artifacts/preds
 colab
 *.zip

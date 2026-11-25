@@ -1,0 +1,19 @@
+# Os pods da API. O Deployment mantém o número de réplicas e faz a troca de versão (rolling update).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lens
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: api
+          # Imagem construída localmente (Dockerfile.cluster, com o BERT dentro) e carregada no nó
+          # (kind load docker-image, ou docker save direto no containerd do nó: ver docs/specs/kubernetes.md). Não
+          # existe em registro nenhum, por isso nunca puxar.
+          image: misogyny-lens:cluster
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 7860

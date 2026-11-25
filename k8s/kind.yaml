@@ -1,0 +1,7 @@
+# Cluster local de estudo: um nó só (control-plane), que também roda os pods.
+# kind create cluster --config k8s/kind.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: lens
+nodes:
+  - role: control-plane

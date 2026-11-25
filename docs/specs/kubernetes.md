@@ -90,3 +90,20 @@ as decisões e a seção "o que acontece quando dou `kubectl apply`".
 ## Registro da revisão
 
 - 24/11/2026, revisão do Hugo: spec aprovada, com a instalação do kind (v0.33.0, via winget).
+- 24/11/2026, bloco 1 (kind v0.33.0, Kubernetes v1.37.0, um nó):
+  - `artifacts/onnx` foi para o `.dockerignore` (a API não o referencia). A camada `COPY artifacts/`
+    caiu de 546 MB para 152 kB; o `docker image ls` foi de 3,33 para 2,29 GB (com o armazenamento do
+    containerd, ele soma a camada compactada e a descompactada). A camada do BERT na imagem do
+    cluster tem 436 MB; a imagem dentro do nó, 907 MB compactados.
+  - O `kind load docker-image` grava um `.tar` temporário no Windows, e o disco do PC não tinha
+    espaço. A imagem foi carregada com `docker save` direto no `ctr images import` do nó, sem arquivo.
+  - Sem probes, o pod fica `Ready` 2 s depois de criado e o rollout "termina" na hora, mas a API só
+    abre a porta 12 s depois de o contêiner iniciar (carga do SVM, spaCy e BERT do disco). Nesse
+    intervalo o Service mandaria tráfego para um pod que não responde. Isso é o bloco 2.
+  - Memória do contêiner da API em repouso, com o BERT, depois de 4 requisições: 527 MB (`crictl
+    stats`). O README diz "~2 GB"; falta medir sob carga (bloco 2).
+  - `/api/analyze`: 110 a 270 ms por frase pelo port-forward, 4 chamadas (só verificação).
+  - Achado anterior a este projeto: o log avisa `InconsistentVersionWarning`, porque o
+    `ensemble.joblib` foi salvo com scikit-learn 1.6.1 e a imagem usa 1.9.1 (fixado desde set/2026).
+    Fica registrado; não é corrigido aqui.
+  - Sem `metrics-server` ainda (`kubectl top` falha): entra no bloco 3, com o HPA.
