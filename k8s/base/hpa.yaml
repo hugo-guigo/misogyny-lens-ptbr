@@ -1,0 +1,29 @@
+# Mais réplicas sob carga: o bloco 2 mediu que acima de 2 núcleos um pod não ganha vazão, então a
+# vazão vem de mais pods. Precisa do metrics-server (k8s/metrics-server).
+# Só ajuda se o tráfego chegar aos pods novos: o Service escolhe o pod por conexão, e um cliente com
+# keep-alive aberto antes da escala continua no pod antigo (medido no bloco 3: 0 requisições no novo).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: lens
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: lens
+  minReplicas: 1
+  # No nó de 4 núcleos, com 1.050m reservados pelo sistema, só cabem 2 réplicas de 1 núcleo de
+  # request; a terceira fica Pending (medido no bloco 3). Fica 3 para mostrar isso.
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70   # % do request de CPU (1 núcleo)
+  behavior:
+    scaleDown:
+      # O padrão é 300 s. 60 s para o estudo caber num teste; com tráfego real, 300 evita ficar
+      # subindo e descendo pod (cada subida custa 18 s e a carga do BERT).
+      stabilizationWindowSeconds: 60

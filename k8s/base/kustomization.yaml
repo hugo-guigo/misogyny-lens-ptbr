@@ -9,6 +9,7 @@ labels:
 resources:
   - deployment.yaml
   - service.yaml
+  - hpa.yaml
 # O nome do ConfigMap ganha um hash do conteúdo (lens-config-<hash>). Mudar um valor muda o nome, o
 # pod template passa a apontar para o novo e o Deployment faz um rolling update sozinho.
 configMapGenerator:

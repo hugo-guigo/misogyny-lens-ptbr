@@ -140,3 +140,64 @@ as decisões e a seção "o que acontece quando dou `kubectl apply`".
     isso mais vazão vem de mais réplicas. Com o control plane (950m), o nó reserva 1.950m de 4.000m:
     cabem 3 réplicas. Nenhuma probe falhou sob carga (eventos `Unhealthy` só na subida, no
     encerramento e no teste sem BERT).
+- 25/11/2026, bloco 3:
+  - **Carga de dentro do cluster** (`k8s/carga/job.yaml`, um Job com a imagem da API e o
+    `bench/load_test.py` num ConfigMap): o `port-forward` prende um pod e cai quando ele sai, então
+    os erros seriam do túnel, não do Service. O `load_test.py` passou a contar os erros por tipo.
+  - **Rolling update sob carga** (600 requisições, 10 simultâneas, `kubectl rollout restart` 20 s
+    depois do início; `maxSurge: 1`, `maxUnavailable: 0`):
+
+    | Configuração | Rodadas | Rollout | Erros |
+    |---|---|---|---|
+    | Probes + `preStop` (bloco 2) | 2 | 30 s e 20 s | 0 e 0 |
+    | Sem probes e sem `preStop` (como o bloco 1) | 1 | 7 s | 472, todos `ConnectError` |
+
+    Sem probes, o pod novo ficou pronto na hora e o antigo saiu com o novo ainda carregando os
+    modelos. O número 472 está inflado: a recusa de conexão é instantânea e o teste não espera entre
+    tentativas, então os 10 clientes gastaram a fila nessa janela. Ele prova a queda, não mede a
+    duração. A configuração foi restaurada com `kubectl apply -k` (as probes voltaram).
+  - **metrics-server v0.8.0** (`k8s/metrics-server`, manifesto oficial e `--kubelet-insecure-tls`,
+    porque o certificado do kubelet no kind é autoassinado).
+  - **HPA** de 1 a 3 réplicas, 70% do request de CPU, `scaleDown` com janela de 60 s (o padrão é
+    300). O `replicas` saiu do Deployment para o `apply` não brigar com o HPA.
+  - **Correção do registro do bloco 2:** "cabem 3 réplicas" estava errado; faltava o metrics-server.
+    O sistema reserva 1.050m, e 3 réplicas de 1 núcleo passam dos 4.000m: a terceira ficou
+    `Pending` (`0/1 nodes are available: 1 Insufficient cpu`). O request não foi baixado só para a
+    demonstração caber.
+  - **Escala** (1.500 requisições, 10 simultâneas): 34 s depois do início, a CPU média estava em 167%
+    e o HPA pediu 3 de uma vez; a segunda réplica ficou pronta em ~24 s; a terceira, `Pending`. A
+    carga acabou em 315 s, a métrica zerou em ~33 s e a escala voltou a 1 em 407 s (~90 s depois
+    do fim: atraso da métrica mais a janela de 60 s). 0 erros, inclusive na volta para 1 réplica.
+  - **Vazão, uma rodada de cada, mesma carga:**
+
+    | | Vazão | p50 / p95 (cliente) | CPU da API |
+    |---|---|---|---|
+    | 1 pod (HPA com máximo 1) | 4,6 req/s | 2,11 / 3,15 s | ~2.000m (no limit) |
+    | HPA, 2 pods prontos | 5,0 req/s | 1,91 / 3,10 s | ~1.000m por pod |
+
+    O HPA funcionou, mas a vazão quase não mudou (+9%, dentro do que uma rodada só permite dizer).
+    Com 2 pods, a API usou os mesmos ~2 núcleos de 1 pod; o pod de carga usou 15 a 19m. Ainda não
+    sei o que segurou o resto do nó de 4 núcleos (i3-9100F, 4 núcleos físicos). Hipóteses não
+    testadas: a CPU do PC disputada pelo Windows e pelo Docker Desktop (a do host não foi medida);
+    o teste de carga com 10 clientes fixos, que limita a vazão a ~10 / latência.
+  - **Investigação da vazão** (mesma escala do HPA, 1.500 requisições, CPU lida a cada 10 s no pod,
+    no nó e no Windows; requisições por pod contadas no log):
+
+    | | Com keep-alive | Sem keep-alive (`--no-keepalive`) |
+    |---|---|---|
+    | Requisições no pod criado pelo HPA | 0 | 591 de 1.500 |
+    | CPU da API depois da escala | 2.000m num pod, 2m no novo | 1.400 a 1.800m em cada |
+    | CPU do nó | ~2,2 núcleos | ~3,5 núcleos |
+    | CPU do Windows | 55 a 78% | 84 a 100% |
+    | Vazão; p50 / p95 | 5,8 req/s; 1,72 / 2,45 s | 8,0 req/s; 1,19 / 2,26 s |
+    | Erros | 0 | 0 |
+
+    **Causa:** o Service (kube-proxy, camada 4) escolhe o pod quando a conexão abre. As 10 conexões
+    keep-alive do teste abriram com 1 pod e ficaram nele; o pod novo ficou pronto e ocioso. A média
+    de 100% que o HPA mostrava era um pod a 200% e outro a 0%. Sem keep-alive, o tráfego se dividiu e
+    o gargalo passou a ser o i3 (Windows a 100%). As duas hipóteses anteriores (CPU do host, clientes
+    fixos) não explicavam o pod novo parado e ficam descartadas como causa principal.
+    **Ressalva:** a vazão de 1 pod variou de 4,6 a 5,8 req/s entre rodadas, então o ganho firme é o
+    tráfego chegar ao pod novo e a API passar de ~2 para ~3,5 núcleos, não a porcentagem exata.
+    **Fora do escopo:** balanceamento por requisição (um Ingress ou proxy de camada 7, ou o servidor
+    fechar conexões antigas). Fica como próximo passo no README.

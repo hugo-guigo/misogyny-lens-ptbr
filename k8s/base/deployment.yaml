@@ -4,7 +4,15 @@ kind: Deployment
 metadata:
   name: lens
 spec:
-  replicas: 1
+  # Sem "replicas": quem decide é o HPA (hpa.yaml). Com o campo aqui, cada kubectl apply voltaria o
+  # Deployment para esse número e brigaria com o HPA.
+  # Troca de versão: sobe 1 pod a mais (maxSurge) e só tira o antigo quando o novo estiver pronto
+  # (maxUnavailable 0). O padrão (25% e 25%) arredonda para o mesmo com 1 réplica, mas fica explícito.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     spec:
       # Encerramento: o kubelet roda o preStop (5 s), depois manda SIGTERM ao uvicorn, que para de
