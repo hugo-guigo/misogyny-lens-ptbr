@@ -144,7 +144,8 @@ its idle kept-alive connections, and a request sent on one at that instant is lo
 since it only stops new connections. The test client now retries such a request once (`--retry-closed`, counted
 separately as `retried`), as a well-behaved client or a proxy would; this is safe only because `/api/analyze` changes
 nothing. A refused connection is never retried. The server-side fix, answering with `Connection: close` while
-draining, is not done. GitHub Pages serves `docs/` from `main`.
+draining, is not done. On the passing run: deploy ready in 5 s, rollout in 7 s, 0 errors in 20,000 requests with 3
+retried; the job takes about 4.5 min, most of it building the PyTorch image. GitHub Pages serves `docs/` from `main`.
 
 ## Limitations
 
